@@ -1,0 +1,1039 @@
+<title>Pit Wall</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0d12;
+    --bg-elevated:#11151d;
+    --surface:#161c26;
+    --surface-2:#1d2431;
+    --border:#2a3242;
+    --border-soft:#212837;
+    --text:#eef1f6;
+    --text-dim:#93a0b3;
+    --text-faint:#5c6879;
+    --accent:#e8a33d;
+    --accent-strong:#f5bd5c;
+    --accent-2:#4fd1c5;
+    --danger:#ef4b4b;
+    --danger-dim:#8a3232;
+    --good:#4caf6d;
+    --track-surface:#1a2029;
+    --track-line:#333d4f;
+    --tire-soft:#e6194B;
+    --tire-medium:#f0c419;
+    --tire-hard:#eef1f6;
+    --tire-wet:#3f8fd6;
+    --font-display:'Barlow Condensed', 'Arial Narrow', sans-serif;
+    --font-body:'Barlow', system-ui, sans-serif;
+    --font-mono:'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    --radius:10px;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font-body);
+    min-height:100vh;
+    overflow-x:hidden;
+  }
+  ::selection{background:var(--accent);color:#1a1206;}
+
+  a{color:var(--accent-2);}
+
+  button{
+    font-family:var(--font-display);
+    letter-spacing:.03em;
+  }
+
+  .app{
+    max-width:1400px;
+    margin:0 auto;
+    padding:20px clamp(14px,3vw,28px) 40px;
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+  }
+
+  /* ---------- Header ---------- */
+  header.topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    flex-wrap:wrap;
+    border-bottom:1px solid var(--border);
+    padding-bottom:14px;
+  }
+  .brand{
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+  }
+  .brand .flag{font-size:1.3rem;}
+  .brand h1{
+    font-family:var(--font-display);
+    font-weight:700;
+    font-size:1.7rem;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    margin:0;
+    text-wrap:balance;
+  }
+  .brand .tag{
+    font-family:var(--font-mono);
+    font-size:.72rem;
+    color:var(--text-faint);
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:2px 9px;
+  }
+
+  .header-right{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+
+  .tabs{
+    display:flex;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:3px;
+    gap:2px;
+  }
+  .tab-btn{
+    appearance:none;
+    border:none;
+    background:transparent;
+    color:var(--text-dim);
+    font-size:.82rem;
+    font-weight:600;
+    text-transform:uppercase;
+    padding:7px 16px;
+    border-radius:999px;
+    cursor:pointer;
+    transition:background .15s ease, color .15s ease;
+  }
+  .tab-btn:hover{color:var(--text);}
+  .tab-btn.active{
+    background:var(--accent);
+    color:#1a1206;
+  }
+  .tab-btn:focus-visible, button:focus-visible, input:focus-visible, [tabindex]:focus-visible{
+    outline:2px solid var(--accent-2);
+    outline-offset:2px;
+  }
+
+  .file-btn{
+    appearance:none;
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    background:var(--surface);
+    color:var(--text);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:8px 14px;
+    font-size:.82rem;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:.03em;
+    cursor:pointer;
+    transition:border-color .15s ease, color .15s ease;
+  }
+  .file-btn:hover{border-color:var(--accent-2);color:var(--accent-2);}
+  .file-btn input{display:none;}
+
+  .source-note{
+    font-family:var(--font-mono);
+    font-size:.72rem;
+    color:var(--text-faint);
+  }
+
+  /* ---------- Weather / status strip ---------- */
+  .status-strip{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+    background:var(--bg-elevated);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:10px 16px;
+  }
+  .chip{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    font-family:var(--font-mono);
+    font-size:.78rem;
+    color:var(--text-dim);
+    background:var(--surface);
+    border:1px solid var(--border-soft);
+    border-radius:7px;
+    padding:5px 10px;
+  }
+  .chip b{color:var(--text);font-weight:600;}
+  .chip.weather-dry{color:var(--accent-strong);}
+  .chip.weather-damp{color:var(--accent-2);}
+  .chip.weather-wet{color:#6fb3ef;}
+  .status-strip .spacer{flex:1;}
+  .lap-counter{
+    font-family:var(--font-mono);
+    font-variant-numeric:tabular-nums;
+    font-size:.9rem;
+    color:var(--text);
+  }
+  .lap-counter b{color:var(--accent-strong);font-size:1.05rem;}
+
+  /* ---------- Layout: race view ---------- */
+  .race-grid{
+    display:grid;
+    grid-template-columns:minmax(0,1.55fr) minmax(280px,1fr);
+    gap:16px;
+  }
+  @media (max-width:880px){
+    .race-grid{grid-template-columns:1fr;}
+  }
+
+  .panel{
+    background:var(--bg-elevated);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    overflow:hidden;
+  }
+  .panel-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:10px 14px;
+    border-bottom:1px solid var(--border);
+    font-family:var(--font-display);
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    font-size:.82rem;
+    color:var(--text-dim);
+  }
+  .panel-head .count{
+    font-family:var(--font-mono);
+    color:var(--text-faint);
+    font-size:.72rem;
+  }
+
+  .track-wrap{position:relative;}
+  canvas#track{
+    display:block;
+    width:100%;
+    height:auto;
+    background:var(--track-surface);
+  }
+
+  /* Playback controls */
+  .controls{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:12px 14px;
+    border-top:1px solid var(--border);
+    flex-wrap:wrap;
+  }
+  .play-btn{
+    appearance:none;
+    border:none;
+    background:var(--accent);
+    color:#1a1206;
+    width:38px;height:38px;
+    border-radius:999px;
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;
+    font-size:1rem;
+    flex:none;
+  }
+  .play-btn:hover{background:var(--accent-strong);}
+  .scrub{
+    flex:1;
+    min-width:120px;
+    accent-color:var(--accent);
+  }
+  .clock-label{
+    font-family:var(--font-mono);
+    font-size:.76rem;
+    color:var(--text-dim);
+    min-width:78px;
+    text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
+  select#speed{
+    background:var(--surface);
+    color:var(--text);
+    border:1px solid var(--border);
+    border-radius:7px;
+    padding:6px 8px;
+    font-family:var(--font-mono);
+    font-size:.78rem;
+  }
+
+  /* Leaderboard */
+  .leaderboard{
+    list-style:none;
+    margin:0;padding:0;
+    max-height:420px;
+    overflow-y:auto;
+  }
+  .lb-row{
+    display:grid;
+    grid-template-columns:26px 16px 1fr auto auto;
+    align-items:center;
+    gap:9px;
+    padding:7px 14px;
+    border-bottom:1px solid var(--border-soft);
+    font-size:.86rem;
+    transition:background .2s ease;
+  }
+  .lb-row:last-child{border-bottom:none;}
+  .lb-row.is-dnf{opacity:.45;}
+  .lb-pos{
+    font-family:var(--font-mono);
+    font-weight:600;
+    color:var(--text-dim);
+    font-variant-numeric:tabular-nums;
+  }
+  .swatch{
+    width:11px;height:11px;border-radius:3px;
+    box-shadow:0 0 0 1px rgba(0,0,0,.35) inset;
+    flex:none;
+  }
+  .lb-name{
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    font-weight:500;
+  }
+  .tire-chip{
+    font-family:var(--font-mono);
+    font-size:.66rem;
+    font-weight:600;
+    text-transform:uppercase;
+    color:#14181f;
+    border-radius:4px;
+    padding:2px 6px;
+    letter-spacing:.02em;
+  }
+  .tire-Soft{background:var(--tire-soft);color:#2a0508;}
+  .tire-Medium{background:var(--tire-medium);color:#2b2205;}
+  .tire-Hard{background:var(--tire-hard);color:#20242c;}
+  .tire-Wet{background:var(--tire-wet);color:#04182b;}
+  .lb-gap{
+    font-family:var(--font-mono);
+    font-size:.76rem;
+    color:var(--text-dim);
+    font-variant-numeric:tabular-nums;
+    text-align:right;
+    min-width:56px;
+  }
+  .lb-gap.leader{color:var(--accent-strong);}
+  .lb-gap.out{color:var(--danger);font-family:var(--font-body);font-weight:600;font-size:.72rem;text-transform:uppercase;}
+
+  /* Event feed */
+  .event-feed{
+    list-style:none;margin:0;padding:0;
+    max-height:150px;
+    overflow-y:auto;
+    font-family:var(--font-mono);
+    font-size:.76rem;
+  }
+  .event-feed li{
+    display:flex;
+    align-items:baseline;
+    gap:8px;
+    padding:6px 14px;
+    border-bottom:1px solid var(--border-soft);
+    color:var(--text-dim);
+  }
+  .event-feed li:first-child{}
+  .event-feed .ev-lap{color:var(--text-faint);min-width:34px;}
+  .event-feed .ev-dot{width:8px;height:8px;border-radius:2px;flex:none;}
+  .event-feed .ev-type-DNF{color:var(--danger);font-weight:600;}
+  .event-feed .ev-type-PIT{color:var(--accent);}
+  .event-feed .ev-type-OVERTAKE_SUCCESS{color:var(--good);}
+  .event-feed .ev-type-OVERTAKE_FAILED{color:var(--text-faint);}
+  .event-feed .empty{color:var(--text-faint);font-style:normal;padding:10px 14px;}
+
+  /* Draft board */
+  .draft-board{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+    gap:8px;
+    padding:14px;
+  }
+  .draft-slot{
+    border:1px dashed var(--border);
+    border-radius:8px;
+    padding:8px 10px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+    min-height:38px;
+  }
+  .draft-slot.filled{
+    border-style:solid;
+    border-color:var(--border-soft);
+    background:var(--surface);
+  }
+  .draft-slot .pick-num{
+    font-family:var(--font-mono);
+    font-weight:600;
+    color:var(--accent-strong);
+    font-size:.76rem;
+    min-width:20px;
+  }
+  .draft-slot .pick-name{
+    font-size:.82rem;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .draft-slot .pick-name.pending{color:var(--text-faint);font-family:var(--font-mono);font-size:.72rem;}
+
+  /* ---------- Qualifying view ---------- */
+  .quali-table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:.88rem;
+  }
+  .quali-table th{
+    text-align:left;
+    font-family:var(--font-display);
+    text-transform:uppercase;
+    letter-spacing:.05em;
+    font-size:.74rem;
+    color:var(--text-faint);
+    padding:9px 14px;
+    border-bottom:1px solid var(--border);
+    position:sticky;top:0;background:var(--bg-elevated);
+  }
+  .quali-table td{
+    padding:9px 14px;
+    border-bottom:1px solid var(--border-soft);
+    font-variant-numeric:tabular-nums;
+  }
+  .quali-table td.time{font-family:var(--font-mono);}
+  .quali-table tr:hover td{background:var(--surface);}
+  .mistake-tag{
+    color:var(--danger);
+    font-family:var(--font-mono);
+    font-size:.72rem;
+    text-transform:uppercase;
+  }
+
+  footer.credit{
+    text-align:center;
+    color:var(--text-faint);
+    font-family:var(--font-mono);
+    font-size:.72rem;
+    padding-top:10px;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    * { scroll-behavior:auto !important; }
+  }
+</style>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="flag" aria-hidden="true">&#127937;</span>
+      <h1>Pit Wall</h1>
+      <span class="tag">Draft Order Replay</span>
+    </div>
+    <div class="header-right">
+      <nav class="tabs" role="tablist" aria-label="View">
+        <button class="tab-btn active" id="tab-race" role="tab" aria-selected="true">Race</button>
+        <button class="tab-btn" id="tab-quali" role="tab" aria-selected="false">Qualifying</button>
+      </nav>
+      <label class="file-btn">
+        &#128194; Load log
+        <input type="file" id="file-input" accept="application/json,.json">
+      </label>
+    </div>
+  </header>
+
+  <div class="status-strip">
+    <span class="chip" id="chip-weather"><b>&mdash;</b></span>
+    <span class="chip" id="chip-cars">&mdash; cars</span>
+    <span class="chip" id="chip-source">sample log</span>
+    <span class="spacer"></span>
+    <span class="lap-counter">LAP <b id="lap-now">0</b> / <span id="lap-total">20</span></span>
+  </div>
+
+  <section id="view-race">
+    <div class="race-grid">
+      <div class="panel">
+        <div class="panel-head"><span>Track</span><span class="count" id="track-status">racing</span></div>
+        <div class="track-wrap">
+          <canvas id="track" width="900" height="520" role="img" aria-label="Animated top-down view of cars racing around the track"></canvas>
+        </div>
+        <div class="controls">
+          <button class="play-btn" id="play-btn" aria-label="Play">&#9654;</button>
+          <input type="range" class="scrub" id="scrub" min="0" max="1000" value="0" aria-label="Race progress">
+          <span class="clock-label" id="clock-label">0.0s</span>
+          <select id="speed" aria-label="Playback speed">
+            <option value="0.5">0.5&times;</option>
+            <option value="1">1&times;</option>
+            <option value="2" selected>2&times;</option>
+            <option value="4">4&times;</option>
+            <option value="8">8&times;</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <div class="panel">
+          <div class="panel-head"><span>Running order</span><span class="count" id="lb-count"></span></div>
+          <ol class="leaderboard" id="leaderboard"></ol>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span>Event feed</span></div>
+          <ul class="event-feed" id="event-feed"><li class="empty">Events will appear here as the race unfolds.</li></ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px;">
+      <div class="panel-head"><span>Draft board</span><span class="count">pick locks in as each car is classified</span></div>
+      <div class="draft-board" id="draft-board"></div>
+    </div>
+  </section>
+
+  <section id="view-quali" style="display:none;">
+    <div class="panel">
+      <div class="panel-head"><span>Qualifying &mdash; single flying lap</span><span class="count" id="quali-count"></span></div>
+      <div style="overflow-x:auto;">
+        <table class="quali-table">
+          <thead><tr><th>Pos</th><th>Driver</th><th>Tire</th><th>Time</th><th>Note</th></tr></thead>
+          <tbody id="quali-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <footer class="credit">Fantasy Draft F1 Simulator &middot; load a log exported via <code>python3 demo.py --json out.json</code> to replay your own draft</footer>
+</div>
+
+<script>
+"use strict";
+
+var EMBEDDED_SAMPLE = {"num_laps":20,"weather":{"track_state":"Damp","temperature":"Cold"},"drivers":[{"driver_id":0,"name":"Driver 1","color":"Red","color_hex":"#e6194B","aggression":3,"num_stops":1,"quali_compound":"Medium","race_compounds":["Soft","Wet"],"pit_laps":[9]},{"driver_id":1,"name":"Driver 2","color":"Blue","color_hex":"#4363d8","aggression":1,"num_stops":1,"quali_compound":"Wet","race_compounds":["Soft","Soft"],"pit_laps":[9]},{"driver_id":2,"name":"Driver 3","color":"Green","color_hex":"#3cb44b","aggression":1,"num_stops":1,"quali_compound":"Medium","race_compounds":["Wet","Wet"],"pit_laps":[9]},{"driver_id":3,"name":"Driver 4","color":"Yellow","color_hex":"#ffe119","aggression":1,"num_stops":1,"quali_compound":"Wet","race_compounds":["Soft","Medium"],"pit_laps":[9]},{"driver_id":4,"name":"Driver 5","color":"Orange","color_hex":"#f58231","aggression":5,"num_stops":2,"quali_compound":"Soft","race_compounds":["Medium","Wet","Hard"],"pit_laps":[8,14]},{"driver_id":5,"name":"Driver 6","color":"Purple","color_hex":"#911eb4","aggression":3,"num_stops":2,"quali_compound":"Medium","race_compounds":["Soft","Hard","Soft"],"pit_laps":[7,12]},{"driver_id":6,"name":"Driver 7","color":"Cyan","color_hex":"#42d4f4","aggression":1,"num_stops":2,"quali_compound":"Soft","race_compounds":["Hard","Hard","Wet"],"pit_laps":[7,12]},{"driver_id":7,"name":"Driver 8","color":"Magenta","color_hex":"#f032e6","aggression":3,"num_stops":1,"quali_compound":"Wet","race_compounds":["Hard","Soft"],"pit_laps":[10]}],"qualifying":{"results":[{"driver_id":4,"grid_position":1,"time":14.764,"compound":"Soft","mistake":false},{"driver_id":6,"grid_position":2,"time":14.94,"compound":"Soft","mistake":false},{"driver_id":5,"grid_position":3,"time":15.447,"compound":"Medium","mistake":false},{"driver_id":2,"grid_position":4,"time":15.606,"compound":"Medium","mistake":false},{"driver_id":0,"grid_position":5,"time":15.652,"compound":"Medium","mistake":false},{"driver_id":7,"grid_position":6,"time":16.393,"compound":"Wet","mistake":false},{"driver_id":1,"grid_position":7,"time":16.536,"compound":"Wet","mistake":false},{"driver_id":3,"grid_position":8,"time":16.543,"compound":"Wet","mistake":false}]},"race":{"laps":[{"lap":1,"cars":[{"driver_id":0,"lap":1,"lap_time":15.257,"total_time":15.257,"compound":"Soft","stint_lap":1,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":4,"gap_to_leader":0.228},{"driver_id":1,"lap":1,"lap_time":15.238,"total_time":15.238,"compound":"Soft","stint_lap":1,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":3,"gap_to_leader":0.208},{"driver_id":2,"lap":1,"lap_time":16.492,"total_time":16.492,"compound":"Wet","stint_lap":1,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":1.462},{"driver_id":3,"lap":1,"lap_time":15.03,"total_time":15.03,"compound":"Soft","stint_lap":1,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":4,"lap":1,"lap_time":15.754,"total_time":15.754,"compound":"Medium","stint_lap":1,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":5,"gap_to_leader":0.724},{"driver_id":5,"lap":1,"lap_time":15.041,"total_time":15.041,"compound":"Soft","stint_lap":1,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":0.011},{"driver_id":6,"lap":1,"lap_time":16.096,"total_time":16.096,"compound":"Hard","stint_lap":1,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":1.066},{"driver_id":7,"lap":1,"lap_time":16.037,"total_time":16.037,"compound":"Hard","stint_lap":1,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":6,"gap_to_leader":1.007}]},{"lap":2,"cars":[{"driver_id":0,"lap":2,"lap_time":15.107,"total_time":30.364,"compound":"Soft","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":3,"gap_to_leader":0.411},{"driver_id":1,"lap":2,"lap_time":15.207,"total_time":30.445,"compound":"Soft","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":4,"gap_to_leader":0.492},{"driver_id":2,"lap":2,"lap_time":16.645,"total_time":33.137,"compound":"Wet","stint_lap":2,"pit":false,"pit_loss":null,"overtake":"overtake_success","event":null,"position":8,"gap_to_leader":3.184},{"driver_id":3,"lap":2,"lap_time":15.083,"total_time":30.113,"compound":"Soft","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":0.16},{"driver_id":4,"lap":2,"lap_time":15.624,"total_time":31.378,"compound":"Medium","stint_lap":2,"pit":false,"pit_loss":null,"overtake":"overtake_failed","event":null,"position":5,"gap_to_leader":1.424},{"driver_id":5,"lap":2,"lap_time":14.913,"total_time":29.953,"compound":"Soft","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":6,"lap":2,"lap_time":16.249,"total_time":32.345,"compound":"Hard","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":2.392},{"driver_id":7,"lap":2,"lap_time":15.981,"total_time":32.018,"compound":"Hard","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":6,"gap_to_leader":2.065}]},{"lap":3,"cars":[{"driver_id":0,"lap":3,"lap_time":15.453,"total_time":45.817,"compound":"Soft","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":4,"gap_to_leader":0.698},{"driver_id":1,"lap":3,"lap_time":15.263,"total_time":45.707,"compound":"Soft","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":3,"gap_to_leader":0.588},{"driver_id":2,"lap":3,"lap_time":16.824,"total_time":49.961,"compound":"Wet","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":4.841},{"driver_id":3,"lap":3,"lap_time":15.332,"total_time":45.445,"compound":"Soft","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":0.325},{"driver_id":4,"lap":3,"lap_time":15.403,"total_time":46.78,"compound":"Medium","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":5,"gap_to_leader":1.661},{"driver_id":5,"lap":3,"lap_time":15.166,"total_time":45.119,"compound":"Soft","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":6,"lap":3,"lap_time":15.999,"total_time":48.344,"compound":"Hard","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":3.225},{"driver_id":7,"lap":3,"lap_time":15.876,"total_time":47.894,"compound":"Hard","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":6,"gap_to_leader":2.774}]},{"lap":4,"cars":[{"driver_id":0,"lap":4,"lap_time":15.465,"total_time":61.283,"compound":"Soft","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":4,"gap_to_leader":1.061},{"driver_id":1,"lap":4,"lap_time":15.55,"total_time":61.257,"compound":"Soft","stint_lap":4,"pit":false,"pit_loss":null,"overtake":"overtake_failed","event":null,"position":3,"gap_to_leader":1.036},{"driver_id":2,"lap":4,"lap_time":16.649,"total_time":66.609,"compound":"Wet","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":6.388},{"driver_id":3,"lap":4,"lap_time":15.459,"total_time":60.904,"compound":"Soft","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":0.682},{"driver_id":4,"lap":4,"lap_time":15.613,"total_time":62.394,"compound":"Medium","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":5,"gap_to_leader":2.172},{"driver_id":5,"lap":4,"lap_time":15.102,"total_time":60.221,"compound":"Soft","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":6,"lap":4,"lap_time":16.124,"total_time":64.468,"compound":"Hard","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":4.247},{"driver_id":7,"lap":4,"lap_time":16.253,"total_time":64.147,"compound":"Hard","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":6,"gap_to_leader":3.925}]},{"lap":5,"cars":[{"driver_id":0,"lap":5,"lap_time":15.45,"total_time":76.733,"compound":"Soft","stint_lap":5,"pit":false,"pit_loss":null,"overtake":"overtake_failed","event":null,"position":4,"gap_to_leader":1.352},{"driver_id":1,"lap":5,"lap_time":15.203,"total_time":76.46,"compound":"Soft","stint_lap":5,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":3,"gap_to_leader":1.078},{"driver_id":2,"lap":5,"lap_time":16.614,"total_time":83.224,"compound":"Wet","stint_lap":5,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":7.842},{"driver_id":3,"lap":5,"lap_time":15.177,"total_time":76.081,"compound":"Soft","stint_lap":5,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":0.699},{"driver_id":4,"lap":5,"lap_time":15.463,"total_time":77.857,"compound":"Medium","stint_lap":5,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":5,"gap_to_leader":2.475},{"driver_id":5,"lap":5,"lap_time":15.16,"total_time":75.381,"compound":"Soft","stint_lap":5,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":6,"lap":5,"lap_time":16.073,"total_time":80.541,"compound":"Hard","stint_lap":5,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":5.16},{"driver_id":7,"lap":5,"lap_time":16.245,"total_time":80.392,"compound":"Hard","stint_lap":5,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":6,"gap_to_leader":5.01}]},{"lap":6,"cars":[{"driver_id":0,"lap":6,"lap_time":15.489,"total_time":92.222,"compound":"Soft","stint_lap":6,"pit":false,"pit_loss":null,"overtake":"overtake_failed","event":null,"position":4,"gap_to_leader":1.225},{"driver_id":1,"lap":6,"lap_time":15.614,"total_time":92.074,"compound":"Soft","stint_lap":6,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":3,"gap_to_leader":1.077},{"driver_id":2,"lap":6,"lap_time":16.535,"total_time":99.758,"compound":"Wet","stint_lap":6,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":8.761},{"driver_id":3,"lap":6,"lap_time":15.342,"total_time":91.423,"compound":"Soft","stint_lap":6,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":0.426},{"driver_id":4,"lap":6,"lap_time":15.845,"total_time":93.701,"compound":"Medium","stint_lap":6,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":5,"gap_to_leader":2.704},{"driver_id":5,"lap":6,"lap_time":15.616,"total_time":90.997,"compound":"Soft","stint_lap":6,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":6,"lap":6,"lap_time":16.228,"total_time":96.769,"compound":"Hard","stint_lap":6,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":5.772},{"driver_id":7,"lap":6,"lap_time":16.058,"total_time":96.45,"compound":"Hard","stint_lap":6,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":6,"gap_to_leader":5.453}]},{"lap":7,"cars":[{"driver_id":0,"lap":7,"lap_time":15.343,"total_time":107.566,"compound":"Soft","stint_lap":7,"pit":false,"pit_loss":null,"overtake":"overtake_success","event":null,"position":2,"gap_to_leader":0.445},{"driver_id":1,"lap":7,"lap_time":15.662,"total_time":107.736,"compound":"Soft","stint_lap":7,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":3,"gap_to_leader":0.615},{"driver_id":2,"lap":7,"lap_time":16.959,"total_time":116.717,"compound":"Wet","stint_lap":7,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":9.596},{"driver_id":3,"lap":7,"lap_time":15.698,"total_time":107.121,"compound":"Soft","stint_lap":7,"pit":false,"pit_loss":null,"overtake":"overtake_failed","event":null,"position":1,"gap_to_leader":0.0},{"driver_id":4,"lap":7,"lap_time":15.998,"total_time":109.699,"compound":"Medium","stint_lap":7,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":4,"gap_to_leader":2.578},{"driver_id":5,"lap":7,"lap_time":18.758,"total_time":109.755,"compound":"Soft","stint_lap":7,"pit":true,"pit_loss":3.471,"overtake":null,"event":null,"position":5,"gap_to_leader":2.634},{"driver_id":6,"lap":7,"lap_time":19.522,"total_time":116.291,"compound":"Hard","stint_lap":7,"pit":true,"pit_loss":3.03,"overtake":"overtake_success","event":null,"position":7,"gap_to_leader":9.17},{"driver_id":7,"lap":7,"lap_time":16.17,"total_time":112.62,"compound":"Hard","stint_lap":7,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":6,"gap_to_leader":5.499}]},{"lap":8,"cars":[{"driver_id":0,"lap":8,"lap_time":15.644,"total_time":123.209,"compound":"Soft","stint_lap":8,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":0.525},{"driver_id":1,"lap":8,"lap_time":15.756,"total_time":123.492,"compound":"Soft","stint_lap":8,"pit":false,"pit_loss":null,"overtake":"overtake_success","event":null,"position":3,"gap_to_leader":0.807},{"driver_id":2,"lap":8,"lap_time":17.025,"total_time":133.742,"compound":"Wet","stint_lap":8,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":11.057},{"driver_id":3,"lap":8,"lap_time":15.564,"total_time":122.685,"compound":"Soft","stint_lap":8,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":4,"lap":8,"lap_time":18.831,"total_time":128.53,"compound":"Medium","stint_lap":8,"pit":true,"pit_loss":2.815,"overtake":null,"event":null,"position":5,"gap_to_leader":5.846},{"driver_id":5,"lap":8,"lap_time":16.243,"total_time":125.999,"compound":"Hard","stint_lap":1,"pit":false,"pit_loss":null,"overtake":"overtake_failed","event":null,"position":4,"gap_to_leader":3.314},{"driver_id":6,"lap":8,"lap_time":15.944,"total_time":132.235,"compound":"Hard","stint_lap":1,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":9.55},{"driver_id":7,"lap":8,"lap_time":16.106,"total_time":128.726,"compound":"Hard","stint_lap":8,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":6,"gap_to_leader":6.041}]},{"lap":9,"cars":[{"driver_id":0,"lap":9,"lap_time":19.018,"total_time":142.227,"compound":"Soft","stint_lap":9,"pit":true,"pit_loss":3.338,"overtake":null,"event":null,"position":3,"gap_to_leader":0.745},{"driver_id":1,"lap":9,"lap_time":19.459,"total_time":142.95,"compound":"Soft","stint_lap":9,"pit":true,"pit_loss":3.932,"overtake":null,"event":null,"position":4,"gap_to_leader":1.468},{"driver_id":2,"lap":9,"lap_time":20.05,"total_time":153.792,"compound":"Wet","stint_lap":9,"pit":true,"pit_loss":3.1,"overtake":null,"event":null,"position":8,"gap_to_leader":12.31},{"driver_id":3,"lap":9,"lap_time":18.797,"total_time":141.482,"compound":"Soft","stint_lap":9,"pit":true,"pit_loss":3.417,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":4,"lap":9,"lap_time":16.222,"total_time":144.753,"compound":"Wet","stint_lap":1,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":5,"gap_to_leader":3.271},{"driver_id":5,"lap":9,"lap_time":15.978,"total_time":141.977,"compound":"Hard","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":0.495},{"driver_id":6,"lap":9,"lap_time":16.341,"total_time":148.576,"compound":"Hard","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":7.094},{"driver_id":7,"lap":9,"lap_time":16.425,"total_time":145.15,"compound":"Hard","stint_lap":9,"pit":false,"pit_loss":null,"overtake":"overtake_success","event":null,"position":6,"gap_to_leader":3.668}]},{"lap":10,"cars":[{"driver_id":0,"lap":10,"lap_time":16.815,"total_time":159.042,"compound":"Wet","stint_lap":1,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":4,"gap_to_leader":1.743},{"driver_id":1,"lap":10,"lap_time":14.82,"total_time":157.77,"compound":"Soft","stint_lap":1,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":0.471},{"driver_id":2,"lap":10,"lap_time":16.447,"total_time":170.24,"compound":"Wet","stint_lap":1,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":12.941},{"driver_id":3,"lap":10,"lap_time":15.817,"total_time":157.299,"compound":"Medium","stint_lap":1,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":4,"lap":10,"lap_time":16.287,"total_time":161.04,"compound":"Wet","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":5,"gap_to_leader":3.741},{"driver_id":5,"lap":10,"lap_time":16.082,"total_time":158.059,"compound":"Hard","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":3,"gap_to_leader":0.76},{"driver_id":6,"lap":10,"lap_time":16.278,"total_time":164.853,"compound":"Hard","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":6,"gap_to_leader":7.554},{"driver_id":7,"lap":10,"lap_time":19.722,"total_time":164.873,"compound":"Hard","stint_lap":10,"pit":true,"pit_loss":3.477,"overtake":null,"event":null,"position":7,"gap_to_leader":7.574}]},{"lap":11,"cars":[{"driver_id":0,"lap":11,"lap_time":16.326,"total_time":175.369,"compound":"Wet","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":4,"gap_to_leader":2.645},{"driver_id":1,"lap":11,"lap_time":14.954,"total_time":172.724,"compound":"Soft","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":2,"lap":11,"lap_time":16.65,"total_time":186.889,"compound":"Wet","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":14.166},{"driver_id":3,"lap":11,"lap_time":15.752,"total_time":173.051,"compound":"Medium","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":0.327},{"driver_id":4,"lap":11,"lap_time":16.49,"total_time":177.53,"compound":"Wet","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":5,"gap_to_leader":4.806},{"driver_id":5,"lap":11,"lap_time":16.42,"total_time":174.478,"compound":"Hard","stint_lap":4,"pit":false,"pit_loss":null,"overtake":"overtake_failed","event":null,"position":3,"gap_to_leader":1.755},{"driver_id":6,"lap":11,"lap_time":16.355,"total_time":181.208,"compound":"Hard","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":8.484},{"driver_id":7,"lap":11,"lap_time":14.917,"total_time":179.79,"compound":"Soft","stint_lap":1,"pit":false,"pit_loss":null,"overtake":"overtake_success","event":null,"position":6,"gap_to_leader":7.066}]},{"lap":12,"cars":[{"driver_id":0,"lap":12,"lap_time":16.72,"total_time":192.088,"compound":"Wet","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":3,"gap_to_leader":3.983},{"driver_id":1,"lap":12,"lap_time":15.382,"total_time":188.106,"compound":"Soft","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":2,"lap":12,"lap_time":16.492,"total_time":203.382,"compound":"Wet","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":15.276},{"driver_id":3,"lap":12,"lap_time":15.939,"total_time":188.99,"compound":"Medium","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":0.884},{"driver_id":4,"lap":12,"lap_time":16.636,"total_time":194.166,"compound":"Wet","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":4,"gap_to_leader":6.06},{"driver_id":5,"lap":12,"lap_time":20.605,"total_time":195.083,"compound":"Hard","stint_lap":5,"pit":true,"pit_loss":4.229,"overtake":null,"event":null,"position":6,"gap_to_leader":6.978},{"driver_id":6,"lap":12,"lap_time":18.948,"total_time":200.156,"compound":"Hard","stint_lap":5,"pit":true,"pit_loss":2.55,"overtake":null,"event":null,"position":7,"gap_to_leader":12.05},{"driver_id":7,"lap":12,"lap_time":15.292,"total_time":195.082,"compound":"Soft","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":5,"gap_to_leader":6.976}]},{"lap":13,"cars":[{"driver_id":0,"lap":13,"lap_time":16.798,"total_time":208.886,"compound":"Wet","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":3,"gap_to_leader":5.651},{"driver_id":1,"lap":13,"lap_time":15.129,"total_time":203.235,"compound":"Soft","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":2,"lap":13,"lap_time":16.46,"total_time":219.841,"compound":"Wet","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":16.606},{"driver_id":3,"lap":13,"lap_time":15.885,"total_time":204.875,"compound":"Medium","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":1.64},{"driver_id":4,"lap":13,"lap_time":16.786,"total_time":210.952,"compound":"Wet","stint_lap":5,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":6,"gap_to_leader":7.716},{"driver_id":5,"lap":13,"lap_time":14.956,"total_time":210.04,"compound":"Soft","stint_lap":1,"pit":false,"pit_loss":null,"overtake":"overtake_failed","event":null,"position":4,"gap_to_leader":6.805},{"driver_id":6,"lap":13,"lap_time":16.394,"total_time":216.55,"compound":"Wet","stint_lap":1,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":13.315},{"driver_id":7,"lap":13,"lap_time":15.329,"total_time":210.411,"compound":"Soft","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":5,"gap_to_leader":7.175}]},{"lap":14,"cars":[{"driver_id":0,"lap":14,"lap_time":16.551,"total_time":225.437,"compound":"Wet","stint_lap":5,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":4,"gap_to_leader":6.94},{"driver_id":1,"lap":14,"lap_time":15.262,"total_time":218.497,"compound":"Soft","stint_lap":5,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":2,"lap":14,"lap_time":16.713,"total_time":236.555,"compound":"Wet","stint_lap":5,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":18.057},{"driver_id":3,"lap":14,"lap_time":15.553,"total_time":220.428,"compound":"Medium","stint_lap":5,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":1.931},{"driver_id":4,"lap":14,"lap_time":20.945,"total_time":231.896,"compound":"Wet","stint_lap":6,"pit":true,"pit_loss":4.425,"overtake":null,"event":null,"position":6,"gap_to_leader":13.399},{"driver_id":5,"lap":14,"lap_time":15.044,"total_time":225.084,"compound":"Soft","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":3,"gap_to_leader":6.587},{"driver_id":6,"lap":14,"lap_time":16.488,"total_time":233.038,"compound":"Wet","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":14.541},{"driver_id":7,"lap":14,"lap_time":15.242,"total_time":225.653,"compound":"Soft","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":5,"gap_to_leader":7.156}]},{"lap":15,"cars":[{"driver_id":0,"lap":15,"lap_time":16.539,"total_time":241.976,"compound":"Wet","stint_lap":6,"pit":false,"pit_loss":null,"overtake":"overtake_failed","event":null,"position":5,"gap_to_leader":8.079},{"driver_id":1,"lap":15,"lap_time":15.4,"total_time":233.897,"compound":"Soft","stint_lap":6,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":2,"lap":15,"lap_time":16.857,"total_time":253.412,"compound":"Wet","stint_lap":6,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":19.515},{"driver_id":3,"lap":15,"lap_time":15.718,"total_time":236.146,"compound":"Medium","stint_lap":6,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":2.25},{"driver_id":4,"lap":15,"lap_time":16.1,"total_time":247.996,"compound":"Hard","stint_lap":1,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":6,"gap_to_leader":14.099},{"driver_id":5,"lap":15,"lap_time":15.053,"total_time":240.137,"compound":"Soft","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":3,"gap_to_leader":6.241},{"driver_id":6,"lap":15,"lap_time":16.727,"total_time":249.766,"compound":"Wet","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":15.869},{"driver_id":7,"lap":15,"lap_time":15.247,"total_time":240.899,"compound":"Soft","stint_lap":5,"pit":false,"pit_loss":null,"overtake":"overtake_success","event":null,"position":4,"gap_to_leader":7.003}]},{"lap":16,"cars":[{"driver_id":0,"lap":16,"lap_time":16.57,"total_time":258.546,"compound":"Wet","stint_lap":7,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":5,"gap_to_leader":8.979},{"driver_id":1,"lap":16,"lap_time":15.67,"total_time":249.567,"compound":"Soft","stint_lap":7,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":2,"lap":16,"lap_time":16.98,"total_time":270.391,"compound":"Wet","stint_lap":7,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":20.824},{"driver_id":3,"lap":16,"lap_time":15.729,"total_time":251.875,"compound":"Medium","stint_lap":7,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":2.308},{"driver_id":4,"lap":16,"lap_time":15.79,"total_time":263.786,"compound":"Hard","stint_lap":2,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":6,"gap_to_leader":14.219},{"driver_id":5,"lap":16,"lap_time":15.184,"total_time":255.322,"compound":"Soft","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":3,"gap_to_leader":5.755},{"driver_id":6,"lap":16,"lap_time":16.733,"total_time":266.498,"compound":"Wet","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":16.931},{"driver_id":7,"lap":16,"lap_time":15.345,"total_time":256.244,"compound":"Soft","stint_lap":6,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":4,"gap_to_leader":6.677}]},{"lap":17,"cars":[{"driver_id":0,"lap":17,"lap_time":16.792,"total_time":275.338,"compound":"Wet","stint_lap":8,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":5,"gap_to_leader":10.102},{"driver_id":1,"lap":17,"lap_time":15.67,"total_time":265.237,"compound":"Soft","stint_lap":8,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":2,"lap":17,"lap_time":16.613,"total_time":287.005,"compound":"Wet","stint_lap":8,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":21.768},{"driver_id":3,"lap":17,"lap_time":15.937,"total_time":267.812,"compound":"Medium","stint_lap":8,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":2.576},{"driver_id":4,"lap":17,"lap_time":16.222,"total_time":280.008,"compound":"Hard","stint_lap":3,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":6,"gap_to_leader":14.772},{"driver_id":5,"lap":17,"lap_time":15.382,"total_time":270.704,"compound":"Soft","stint_lap":5,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":3,"gap_to_leader":5.467},{"driver_id":6,"lap":17,"lap_time":16.545,"total_time":283.043,"compound":"Wet","stint_lap":5,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":17.807},{"driver_id":7,"lap":17,"lap_time":15.326,"total_time":271.57,"compound":"Soft","stint_lap":7,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":4,"gap_to_leader":6.334}]},{"lap":18,"cars":[{"driver_id":0,"lap":18,"lap_time":17.031,"total_time":292.369,"compound":"Wet","stint_lap":9,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":5,"gap_to_leader":11.581},{"driver_id":1,"lap":18,"lap_time":15.552,"total_time":280.788,"compound":"Soft","stint_lap":9,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":2,"lap":18,"lap_time":16.712,"total_time":303.717,"compound":"Wet","stint_lap":9,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":22.928},{"driver_id":3,"lap":18,"lap_time":15.912,"total_time":283.724,"compound":"Medium","stint_lap":9,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":2.936},{"driver_id":4,"lap":18,"lap_time":16.166,"total_time":296.174,"compound":"Hard","stint_lap":4,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":6,"gap_to_leader":15.386},{"driver_id":5,"lap":18,"lap_time":15.499,"total_time":286.203,"compound":"Soft","stint_lap":6,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":3,"gap_to_leader":5.415},{"driver_id":6,"lap":18,"lap_time":16.539,"total_time":299.583,"compound":"Wet","stint_lap":6,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":18.795},{"driver_id":7,"lap":18,"lap_time":15.374,"total_time":286.944,"compound":"Soft","stint_lap":8,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":4,"gap_to_leader":6.156}]},{"lap":19,"cars":[{"driver_id":0,"lap":19,"lap_time":16.916,"total_time":309.284,"compound":"Wet","stint_lap":10,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":5,"gap_to_leader":12.953},{"driver_id":1,"lap":19,"lap_time":15.543,"total_time":296.331,"compound":"Soft","stint_lap":10,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":2,"lap":19,"lap_time":16.887,"total_time":320.604,"compound":"Wet","stint_lap":10,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":24.273},{"driver_id":3,"lap":19,"lap_time":16.043,"total_time":299.767,"compound":"Medium","stint_lap":10,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":3.436},{"driver_id":4,"lap":19,"lap_time":16.161,"total_time":312.336,"compound":"Hard","stint_lap":5,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":6,"gap_to_leader":16.004},{"driver_id":5,"lap":19,"lap_time":15.65,"total_time":301.853,"compound":"Soft","stint_lap":7,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":3,"gap_to_leader":5.521},{"driver_id":6,"lap":19,"lap_time":16.888,"total_time":316.471,"compound":"Wet","stint_lap":7,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":20.139},{"driver_id":7,"lap":19,"lap_time":15.785,"total_time":302.729,"compound":"Soft","stint_lap":9,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":4,"gap_to_leader":6.398}]},{"lap":20,"cars":[{"driver_id":0,"lap":20,"lap_time":17.157,"total_time":326.441,"compound":"Wet","stint_lap":11,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":5,"gap_to_leader":14.379},{"driver_id":1,"lap":20,"lap_time":15.731,"total_time":312.062,"compound":"Soft","stint_lap":11,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":1,"gap_to_leader":0.0},{"driver_id":2,"lap":20,"lap_time":16.828,"total_time":337.431,"compound":"Wet","stint_lap":11,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":8,"gap_to_leader":25.369},{"driver_id":3,"lap":20,"lap_time":16.137,"total_time":315.904,"compound":"Medium","stint_lap":11,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":2,"gap_to_leader":3.842},{"driver_id":4,"lap":20,"lap_time":16.203,"total_time":328.539,"compound":"Hard","stint_lap":6,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":6,"gap_to_leader":16.477},{"driver_id":5,"lap":20,"lap_time":15.325,"total_time":317.177,"compound":"Soft","stint_lap":8,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":3,"gap_to_leader":5.115},{"driver_id":6,"lap":20,"lap_time":16.707,"total_time":333.177,"compound":"Wet","stint_lap":8,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":7,"gap_to_leader":21.115},{"driver_id":7,"lap":20,"lap_time":15.724,"total_time":318.454,"compound":"Soft","stint_lap":10,"pit":false,"pit_loss":null,"overtake":null,"event":null,"position":4,"gap_to_leader":6.392}]}],"events":[{"lap":2,"driver_id":2,"type":"OVERTAKE_SUCCESS","detail":"Overtake Success"},{"lap":2,"driver_id":4,"type":"OVERTAKE_FAILED","detail":"Overtake Failed"},{"lap":4,"driver_id":1,"type":"OVERTAKE_FAILED","detail":"Overtake Failed"},{"lap":5,"driver_id":0,"type":"OVERTAKE_FAILED","detail":"Overtake Failed"},{"lap":6,"driver_id":0,"type":"OVERTAKE_FAILED","detail":"Overtake Failed"},{"lap":7,"driver_id":0,"type":"OVERTAKE_SUCCESS","detail":"Overtake Success"},{"lap":7,"driver_id":3,"type":"OVERTAKE_FAILED","detail":"Overtake Failed"},{"lap":7,"driver_id":5,"type":"PIT","detail":"Pit stop (+3.471s)"},{"lap":7,"driver_id":6,"type":"PIT","detail":"Pit stop (+3.03s)"},{"lap":7,"driver_id":6,"type":"OVERTAKE_SUCCESS","detail":"Overtake Success"},{"lap":8,"driver_id":1,"type":"OVERTAKE_SUCCESS","detail":"Overtake Success"},{"lap":8,"driver_id":4,"type":"PIT","detail":"Pit stop (+2.815s)"},{"lap":8,"driver_id":5,"type":"OVERTAKE_FAILED","detail":"Overtake Failed"},{"lap":9,"driver_id":0,"type":"PIT","detail":"Pit stop (+3.338s)"},{"lap":9,"driver_id":1,"type":"PIT","detail":"Pit stop (+3.932s)"},{"lap":9,"driver_id":2,"type":"PIT","detail":"Pit stop (+3.1s)"},{"lap":9,"driver_id":3,"type":"PIT","detail":"Pit stop (+3.417s)"},{"lap":9,"driver_id":7,"type":"OVERTAKE_SUCCESS","detail":"Overtake Success"},{"lap":10,"driver_id":7,"type":"PIT","detail":"Pit stop (+3.477s)"},{"lap":11,"driver_id":5,"type":"OVERTAKE_FAILED","detail":"Overtake Failed"},{"lap":11,"driver_id":7,"type":"OVERTAKE_SUCCESS","detail":"Overtake Success"},{"lap":12,"driver_id":5,"type":"PIT","detail":"Pit stop (+4.229s)"},{"lap":12,"driver_id":6,"type":"PIT","detail":"Pit stop (+2.55s)"},{"lap":13,"driver_id":5,"type":"OVERTAKE_FAILED","detail":"Overtake Failed"},{"lap":14,"driver_id":4,"type":"PIT","detail":"Pit stop (+4.425s)"},{"lap":15,"driver_id":0,"type":"OVERTAKE_FAILED","detail":"Overtake Failed"},{"lap":15,"driver_id":7,"type":"OVERTAKE_SUCCESS","detail":"Overtake Success"}]},"result":{"classified":[{"position":1,"driver_id":1,"total_time":312.062,"gap":0.0},{"position":2,"driver_id":3,"total_time":315.904,"gap":3.842},{"position":3,"driver_id":5,"total_time":317.177,"gap":5.115},{"position":4,"driver_id":7,"total_time":318.454,"gap":6.392},{"position":5,"driver_id":0,"total_time":326.441,"gap":14.379},{"position":6,"driver_id":4,"total_time":328.539,"gap":16.477},{"position":7,"driver_id":6,"total_time":333.177,"gap":21.115},{"position":8,"driver_id":2,"total_time":337.431,"gap":25.369}],"dnfs":[],"draft_order":[1,3,5,7,0,4,6,2],"draft_order_reversed":false}};
+
+var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+var raceData = null;
+var checkpoints = null;   // driver_id -> array of checkpoint objects
+var driversById = null;
+var clockMax = 1;
+var clock = 0;
+var playing = false;
+var speed = 2;
+var lastFrameTs = null;
+var domThrottle = 0;
+var trailHistory = {}; // driver_id -> array of {x,y}
+var laneOffset = {};   // driver_id -> stable perpendicular offset (px), so close cars don't fully overlap
+
+var canvas = document.getElementById('track');
+var ctx = canvas.getContext('2d');
+
+function fmtTime(t){
+  if (t == null) return "--";
+  return t.toFixed(1) + "s";
+}
+function fmtGap(g){
+  if (g == null) return "--";
+  return "+" + g.toFixed(2) + "s";
+}
+
+// ---------------------------------------------------------------------
+// Data loading + precomputation
+// ---------------------------------------------------------------------
+
+function loadRace(data, sourceLabel){
+  raceData = data;
+  driversById = {};
+  data.drivers.forEach(function(d){ driversById[d.driver_id] = d; });
+
+  checkpoints = {};
+  data.drivers.forEach(function(d){
+    checkpoints[d.driver_id] = [{ t: 0, lap: 0, position: d.driver_id, dnf:false }];
+  });
+
+  data.race.laps.forEach(function(lapEntry){
+    lapEntry.cars.forEach(function(car){
+      var arr = checkpoints[car.driver_id];
+      if (car.event === 'DNF'){
+        arr.push({ t: null, lap: car.lap, dnf: true, reason: car.reason, compound: car.compound });
+      } else {
+        arr.push({
+          t: car.total_time, lap: car.lap, position: car.position, gap: car.gap_to_leader,
+          compound: car.compound, pit: car.pit, pitLoss: car.pit_loss, overtake: car.overtake, dnf: false
+        });
+      }
+    });
+  });
+
+  var maxT = 0;
+  (data.result.classified || []).forEach(function(c){ if (c.total_time > maxT) maxT = c.total_time; });
+  Object.keys(checkpoints).forEach(function(id){
+    checkpoints[id].forEach(function(cp){ if (cp.t != null && cp.t > maxT) maxT = cp.t; });
+  });
+  clockMax = maxT || 1;
+  clock = 0;
+  trailHistory = {};
+  laneOffset = {};
+  data.drivers.forEach(function(d, i){
+    trailHistory[d.driver_id] = [];
+    laneOffset[d.driver_id] = ((i % 5) - 2) * 4.5;
+  });
+
+  document.getElementById('chip-weather').innerHTML =
+    '<b>' + data.weather.track_state + '</b> track &middot; ' + data.weather.temperature + ' temp';
+  var wchip = document.getElementById('chip-weather');
+  wchip.className = 'chip weather-' + data.weather.track_state.toLowerCase();
+  document.getElementById('chip-cars').textContent = data.drivers.length + ' cars';
+  document.getElementById('chip-source').textContent = sourceLabel;
+  document.getElementById('lap-total').textContent = data.num_laps;
+
+  buildQualiTable();
+  buildDraftBoardShell();
+  renderFrame(true);
+}
+
+// ---------------------------------------------------------------------
+// Track geometry (stadium: two straights + two semicircles)
+// ---------------------------------------------------------------------
+
+var TRACK = { cx: 450, cy: 260, halfLen: 260, r: 150 };
+
+function trackPoint(f){
+  f = ((f % 1) + 1) % 1;
+  var straight = TRACK.halfLen * 2;
+  var arc = Math.PI * TRACK.r;
+  var total = 2 * straight + 2 * arc;
+  var d = f * total;
+
+  if (d < straight){
+    // top straight, left -> right
+    var x = TRACK.cx - TRACK.halfLen + d;
+    return { x: x, y: TRACK.cy - TRACK.r, angle: 0 };
+  }
+  d -= straight;
+  if (d < arc){
+    // right semicircle, top -> bottom, centered at (cx+halfLen, cy)
+    var a = -Math.PI/2 + (d / arc) * Math.PI;
+    return { x: TRACK.cx + TRACK.halfLen + TRACK.r * Math.cos(a), y: TRACK.cy + TRACK.r * Math.sin(a), angle: a + Math.PI/2 };
+  }
+  d -= arc;
+  if (d < straight){
+    // bottom straight, right -> left
+    var x2 = TRACK.cx + TRACK.halfLen - d;
+    return { x: x2, y: TRACK.cy + TRACK.r, angle: Math.PI };
+  }
+  d -= straight;
+  // left semicircle, bottom -> top, centered at (cx-halfLen, cy)
+  var a2 = Math.PI/2 + (d / arc) * Math.PI;
+  return { x: TRACK.cx - TRACK.halfLen + TRACK.r * Math.cos(a2), y: TRACK.cy + TRACK.r * Math.sin(a2), angle: a2 + Math.PI/2 };
+}
+
+function drawTrack(){
+  var w = canvas.width, h = canvas.height;
+  ctx.clearRect(0,0,w,h);
+
+  var styles = getComputedStyle(document.documentElement);
+  var trackSurface = styles.getPropertyValue('--track-surface').trim() || '#1a2029';
+  var trackLine = styles.getPropertyValue('--track-line').trim() || '#333d4f';
+
+  ctx.fillStyle = trackSurface;
+  ctx.fillRect(0,0,w,h);
+
+  // Outer + inner boundary of the ring (band thickness ~34px)
+  var band = 34;
+  [TRACK.r + band/2, TRACK.r - band/2].forEach(function(r, idx){
+    ctx.beginPath();
+    for (var i=0;i<=400;i++){
+      var f = i/400;
+      var p = trackPointAtRadius(f, r);
+      if (i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = trackLine;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  });
+
+  // start/finish line at f=0
+  var sf = trackPoint(0);
+  ctx.save();
+  ctx.translate(sf.x, sf.y);
+  ctx.rotate(sf.angle);
+  ctx.fillStyle = '#e8ecf0';
+  for (var seg=-1; seg<=1; seg+=2){
+    ctx.fillRect(-2, seg*(band/2)/2 - 4, 4, 8);
+  }
+  ctx.restore();
+}
+
+function trackPointAtRadius(f, rOverride){
+  var save = TRACK.r;
+  TRACK.r = rOverride;
+  var p = trackPoint(f);
+  TRACK.r = save;
+  return p;
+}
+
+// ---------------------------------------------------------------------
+// Per-driver state at a given clock time
+// ---------------------------------------------------------------------
+
+function stateAt(driverId, t){
+  var cps = checkpoints[driverId];
+  var prev = cps[0];
+  var next = null;
+  var dnfCp = null;
+
+  for (var i=1;i<cps.length;i++){
+    var cp = cps[i];
+    if (cp.dnf){ dnfCp = cp; break; }
+    if (cp.t <= t){ prev = cp; }
+    else { next = cp; break; }
+  }
+
+  if (dnfCp){
+    var frac = prev.lap / raceData.num_laps;
+    var reached = t >= (prev.t || 0);
+    return {
+      status: reached ? 'dnf' : 'racing',
+      trackFrac: frac,
+      progress: prev.lap - 0.4,
+      lap: dnfCp.lap,
+      compound: dnfCp.compound,
+      reason: dnfCp.reason,
+      position: null,
+      gap: null
+    };
+  }
+
+  if (!next){
+    // fully done (finished, or hasn't started laps at all if cps.length===1)
+    if (cps.length === 1){
+      return { status:'pending', trackFrac:0, progress:0, lap:0, compound: driversById[driverId].quali_compound, position:null, gap:null };
+    }
+    return {
+      status:'finished', trackFrac:0, progress: raceData.num_laps + (100000 - prev.t)/1000000,
+      lap: raceData.num_laps, compound: prev.compound, position: prev.position, gap: prev.gap
+    };
+  }
+
+  var span = next.t - (prev.t||0);
+  var localT = span>0 ? (t-(prev.t||0))/span : 1;
+  if (localT<0) localT=0; if (localT>1) localT=1;
+  var lapNum = next.lap;
+  var trackFrac = ((lapNum-1)+localT)/raceData.num_laps;
+  return {
+    status:'racing', trackFrac: trackFrac, progress: (lapNum-1)+localT,
+    lap: lapNum, compound: next.compound, position: prev.position, gap: prev.gap,
+    justPitted: next.pit, overtake: next.overtake
+  };
+}
+
+function orderedField(t){
+  var ids = raceData.drivers.map(function(d){return d.driver_id;});
+  var states = ids.map(function(id){ return { id:id, s: stateAt(id,t) }; });
+  states.sort(function(a,b){
+    var rankA = a.s.status==='dnf' ? 1 : 0;
+    var rankB = b.s.status==='dnf' ? 1 : 0;
+    if (rankA !== rankB) return rankA - rankB;
+    return b.s.progress - a.s.progress;
+  });
+  return states;
+}
+
+// ---------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------
+
+function renderCars(t){
+  var field = orderedField(t);
+  field.forEach(function(entry){
+    var s = entry.s;
+    if (s.status==='pending') return;
+    var driver = driversById[entry.id];
+    var p = trackPoint(s.trackFrac);
+    var off = laneOffset[entry.id] || 0;
+    p = { x: p.x + off * Math.cos(p.angle + Math.PI/2), y: p.y + off * Math.sin(p.angle + Math.PI/2) };
+
+    if (!reducedMotion && s.status !== 'dnf'){
+      var hist = trailHistory[entry.id];
+      hist.push({x:p.x,y:p.y});
+      if (hist.length>7) hist.shift();
+      for (var i=0;i<hist.length-1;i++){
+        var a = (i+1)/hist.length * 0.35;
+        ctx.beginPath();
+        ctx.fillStyle = hexWithAlpha(driver.color_hex, a);
+        ctx.arc(hist[i].x, hist[i].y, 4.5, 0, Math.PI*2);
+        ctx.fill();
+      }
+    }
+
+    ctx.beginPath();
+    ctx.fillStyle = s.status==='dnf' ? '#3d4453' : driver.color_hex;
+    ctx.globalAlpha = s.status==='dnf' ? 0.55 : 1;
+    ctx.arc(p.x, p.y, s.status==='dnf' ? 5 : 7, 0, Math.PI*2);
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(10,13,18,0.8)';
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    if (s.status==='dnf'){
+      ctx.strokeStyle = '#ef4b4b';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(p.x-5,p.y-5); ctx.lineTo(p.x+5,p.y+5);
+      ctx.moveTo(p.x-5,p.y+5); ctx.lineTo(p.x+5,p.y-5);
+      ctx.stroke();
+    }
+  });
+}
+
+function hexWithAlpha(hex, alpha){
+  var r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return 'rgba('+r+','+g+','+b+','+alpha+')';
+}
+
+function renderFrame(force){
+  drawTrack();
+  renderCars(clock);
+
+  domThrottle++;
+  if (force || domThrottle % 5 === 0){
+    updateLeaderboard(clock);
+    updateEventFeed(clock);
+    updateDraftBoard(clock);
+    updateLapCounter(clock);
+  }
+  document.getElementById('scrub').value = Math.round((clock/clockMax)*1000);
+  document.getElementById('clock-label').textContent = fmtTime(clock);
+}
+
+function updateLapCounter(t){
+  var field = orderedField(t);
+  var leadLap = 0;
+  field.forEach(function(e){ if (e.s.lap > leadLap) leadLap = e.s.lap; });
+  document.getElementById('lap-now').textContent = Math.min(leadLap, raceData.num_laps);
+  document.getElementById('track-status').textContent = t >= clockMax ? 'finished' : 'racing';
+}
+
+function updateLeaderboard(t){
+  var field = orderedField(t);
+  var el = document.getElementById('leaderboard');
+  var html = '';
+  field.forEach(function(entry, idx){
+    var s = entry.s;
+    var driver = driversById[entry.id];
+    var rowClass = s.status==='dnf' ? 'lb-row is-dnf' : 'lb-row';
+    var gapHtml;
+    if (s.status==='dnf'){ gapHtml = '<span class="lb-gap out">OUT L' + s.lap + '</span>'; }
+    else if (idx===0){ gapHtml = '<span class="lb-gap leader">LEAD</span>'; }
+    else { gapHtml = '<span class="lb-gap">' + fmtGap(s.gap) + '</span>'; }
+    var tire = s.compound || driver.quali_compound;
+    html += '<li class="'+rowClass+'">' +
+      '<span class="lb-pos">'+(idx+1)+'</span>' +
+      '<span class="swatch" style="background:'+driver.color_hex+'"></span>' +
+      '<span class="lb-name">'+escapeHtml(driver.name)+'</span>' +
+      '<span class="tire-chip tire-'+tire+'">'+tire[0]+'</span>' +
+      gapHtml +
+      '</li>';
+  });
+  el.innerHTML = html;
+  document.getElementById('lb-count').textContent = raceData.drivers.length + ' cars';
+}
+
+var eventCursor = 0;
+function eventTriggerTime(ev){
+  var arr = checkpoints[ev.driver_id];
+  var best = 0;
+  for (var i=0;i<arr.length;i++){
+    var cp = arr[i];
+    if (cp.dnf && cp.lap===ev.lap) return best;
+    if (!cp.dnf && cp.lap===ev.lap) return cp.t;
+    if (!cp.dnf && cp.t!=null && cp.lap < ev.lap) best = cp.t;
+  }
+  return best;
+}
+
+function updateEventFeed(t){
+  var events = raceData.race.events || [];
+  var visible = events.filter(function(ev){ return eventTriggerTime(ev) <= t; });
+  var el = document.getElementById('event-feed');
+  if (visible.length===0){ el.innerHTML = '<li class="empty">Events will appear here as the race unfolds.</li>'; return; }
+  var html = '';
+  for (var i=visible.length-1;i>=0;i--){
+    var ev = visible[i];
+    var driver = driversById[ev.driver_id];
+    html += '<li>' +
+      '<span class="ev-lap">L'+ev.lap+'</span>' +
+      '<span class="ev-dot" style="background:'+driver.color_hex+'"></span>' +
+      '<span style="color:var(--text);flex:none;">'+escapeHtml(driver.name)+'</span>' +
+      '<span class="ev-type-'+ev.type+'">'+escapeHtml(ev.detail)+'</span>' +
+      '</li>';
+  }
+  el.innerHTML = html;
+}
+
+function buildDraftBoardShell(){
+  var order = raceData.result.draft_order;
+  var el = document.getElementById('draft-board');
+  var html = '';
+  order.forEach(function(driverId, i){
+    html += '<div class="draft-slot" id="slot-'+i+'"><span class="pick-num">'+(i+1)+'</span><span class="pick-name pending">TBD</span></div>';
+  });
+  el.innerHTML = html;
+}
+
+function updateDraftBoard(t){
+  var order = raceData.result.draft_order;
+  order.forEach(function(driverId, i){
+    var s = stateAt(driverId, t);
+    var slot = document.getElementById('slot-'+i);
+    if (!slot) return;
+    var decided = s.status==='finished' || s.status==='dnf';
+    if (decided && !slot.classList.contains('filled')){
+      var driver = driversById[driverId];
+      slot.classList.add('filled');
+      slot.innerHTML = '<span class="pick-num">'+(i+1)+'</span>' +
+        '<span class="swatch" style="background:'+driver.color_hex+'"></span>' +
+        '<span class="pick-name">'+escapeHtml(driver.name)+'</span>';
+    }
+  });
+}
+
+function buildQualiTable(){
+  var results = raceData.qualifying.results.slice().sort(function(a,b){ return a.grid_position - b.grid_position; });
+  var html = '';
+  results.forEach(function(r){
+    var driver = driversById[r.driver_id];
+    html += '<tr>' +
+      '<td>'+r.grid_position+'</td>' +
+      '<td><span class="swatch" style="background:'+driver.color_hex+';display:inline-block;margin-right:8px;vertical-align:middle;"></span>'+escapeHtml(driver.name)+'</td>' +
+      '<td><span class="tire-chip tire-'+r.compound+'">'+r.compound+'</span></td>' +
+      '<td class="time">'+r.time.toFixed(3)+'s</td>' +
+      '<td>'+(r.mistake ? '<span class="mistake-tag">Mistake</span>' : '')+'</td>' +
+      '</tr>';
+  });
+  document.getElementById('quali-body').innerHTML = html;
+  document.getElementById('quali-count').textContent = results.length + ' drivers';
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+// ---------------------------------------------------------------------
+// Playback loop
+// ---------------------------------------------------------------------
+
+function tick(ts){
+  if (!playing) return;
+  if (lastFrameTs==null) lastFrameTs = ts;
+  var dt = (ts - lastFrameTs)/1000;
+  lastFrameTs = ts;
+  clock += dt * speed * 3; // 3 sim-seconds per real-second at 1x, tuned for a ~7-15s replay
+  if (clock >= clockMax){
+    clock = clockMax;
+    playing = false;
+    document.getElementById('play-btn').innerHTML = '&#9654;';
+  }
+  renderFrame(false);
+  if (playing) requestAnimationFrame(tick);
+}
+
+function setPlaying(v){
+  playing = v;
+  document.getElementById('play-btn').innerHTML = playing ? '&#10074;&#10074;' : '&#9654;';
+  document.getElementById('play-btn').setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  if (playing){
+    if (clock >= clockMax) clock = 0;
+    lastFrameTs = null;
+    requestAnimationFrame(tick);
+  }
+}
+
+document.getElementById('play-btn').addEventListener('click', function(){ setPlaying(!playing); });
+
+document.getElementById('scrub').addEventListener('input', function(e){
+  playing = false;
+  document.getElementById('play-btn').innerHTML = '&#9654;';
+  clock = (e.target.value/1000) * clockMax;
+  renderFrame(true);
+});
+
+document.getElementById('speed').addEventListener('change', function(e){
+  speed = parseFloat(e.target.value);
+});
+
+document.getElementById('tab-race').addEventListener('click', function(){
+  document.getElementById('view-race').style.display = '';
+  document.getElementById('view-quali').style.display = 'none';
+  document.getElementById('tab-race').classList.add('active');
+  document.getElementById('tab-race').setAttribute('aria-selected','true');
+  document.getElementById('tab-quali').classList.remove('active');
+  document.getElementById('tab-quali').setAttribute('aria-selected','false');
+});
+document.getElementById('tab-quali').addEventListener('click', function(){
+  document.getElementById('view-race').style.display = 'none';
+  document.getElementById('view-quali').style.display = '';
+  document.getElementById('tab-quali').classList.add('active');
+  document.getElementById('tab-quali').setAttribute('aria-selected','true');
+  document.getElementById('tab-race').classList.remove('active');
+  document.getElementById('tab-race').setAttribute('aria-selected','false');
+});
+
+document.getElementById('file-input').addEventListener('change', function(e){
+  var file = e.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(evt){
+    try {
+      var data = JSON.parse(evt.target.result);
+      if (!data.race || !data.drivers || !data.result){
+        alert('That file does not look like a Fantasy Draft F1 Simulator log (missing race/drivers/result).');
+        return;
+      }
+      playing = false;
+      loadRace(data, file.name);
+    } catch(err){
+      alert('Could not parse that file as JSON: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+});
+
+// ---------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------
+
+function resizeCanvas(){
+  var wrap = canvas.parentElement;
+  var w = wrap.clientWidth;
+  canvas.style.height = (w * (520/900)) + 'px';
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+loadRace(EMBEDDED_SAMPLE, 'sample log (seed 42, 8 cars)');
+</script>

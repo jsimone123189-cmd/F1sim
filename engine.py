@@ -1,0 +1,146 @@
+"""
+Fantasy Draft F1 Simulator - core engine
+
+Two stages:
+  1. Qualifying (1 lap) -> sets starting grid, locks the used tire compound
+  2. Race (20 laps)      -> final order becomes the draft order
+
+Run `demo.py` for an interactive (or randomized) playtest session.
+"""
+
+import random
+from dataclasses import dataclass, field
+from enum import Enum
+
+
+# ---------------------------------------------------------------------------
+# Config constants (all tunable)
+# ---------------------------------------------------------------------------
+
+BASE_LAP_TIME = 15.0
+NUM_LAPS = 20
+GRIP_PENALTY_FACTOR = 2.0          # max seconds lost to zero grip (softened from 3.0 - see README)
+QUALI_RANDOM_VARIANCE = 0.15       # +/- seconds
+RACE_RANDOM_VARIANCE = 0.25        # +/- seconds per lap
+PIT_STOP_BASE_RANGE = (2.5, 4.5)   # seconds
+PIT_STOP_SLOW_CHANCE = 0.05
+PIT_STOP_SLOW_EXTRA_RANGE = (2.0, 5.0)
+BASE_MECHANICAL_RATE = 0.001       # per lap
+TRAFFIC_GAP_THRESHOLD = 0.5        # seconds - "close" to car ahead
+TRAFFIC_PENALTY = 0.08             # seconds lost sitting in dirty air
+DRAFT_ORDER_REVERSED = False       # flip to True to make P1 finisher = last pick
+
+
+class Compound(Enum):
+    SOFT = "Soft"
+    MEDIUM = "Medium"
+    HARD = "Hard"
+    WET = "Wet"
+
+
+class TrackState(Enum):
+    DRY = "Dry"
+    DAMP = "Damp"
+    WET = "Wet"
+
+
+class Temperature(Enum):
+    COLD = "Cold"
+    MILD = "Mild"
+    HOT = "Hot"
+
+
+@dataclass
+class TireSpec:
+    base_pace: float
+    degradation_rate: float
+    grip_dry: float
+    grip_wet: float
+    heat_sensitivity: float
+
+
+TIRES = {
+    Compound.SOFT:   TireSpec(base_pace=-0.6, degradation_rate=0.050, grip_dry=0.95, grip_wet=0.40, heat_sensitivity=1.5),
+    Compound.MEDIUM: TireSpec(base_pace=0.0,  degradation_rate=0.030, grip_dry=0.85, grip_wet=0.55, heat_sensitivity=1.2),
+    Compound.HARD:   TireSpec(base_pace=0.5,  degradation_rate=0.015, grip_dry=0.75, grip_wet=0.60, heat_sensitivity=0.8),
+    Compound.WET:    TireSpec(base_pace=1.0,  degradation_rate=0.030, grip_dry=0.50, grip_wet=0.95, heat_sensitivity=2.0),
+}
+
+# High-contrast, easy-to-distinguish palette (extend if you support more cars)
+COLOR_PALETTE = [
+    "Red", "Blue", "Green", "Yellow", "Orange", "Purple", "Cyan", "Magenta",
+    "Lime", "Pink", "Teal", "Gold", "Navy", "Maroon", "Turquoise", "Silver",
+    "Brown", "Indigo", "Coral", "Olive",
+]
+
+# Hex equivalents of COLOR_PALETTE, for the visualization layer.
+COLOR_HEX = {
+    "Red": "#e6194B", "Blue": "#4363d8", "Green": "#3cb44b", "Yellow": "#ffe119",
+    "Orange": "#f58231", "Purple": "#911eb4", "Cyan": "#42d4f4", "Magenta": "#f032e6",
+    "Lime": "#bfef45", "Pink": "#fabed4", "Teal": "#469990", "Gold": "#dcbe23",
+    "Navy": "#000075", "Maroon": "#800000", "Turquoise": "#40e0d0", "Silver": "#c0c0c0",
+    "Brown": "#9A6324", "Indigo": "#4b0082", "Coral": "#ff7f50", "Olive": "#808000",
+}
+
+
+@dataclass
+class Weather:
+    track_state: TrackState
+    temperature: Temperature
+
+    @staticmethod
+    def roll(rng: random.Random) -> "Weather":
+        track_state = rng.choices(
+            [TrackState.DRY, TrackState.DAMP, TrackState.WET],
+            weights=[60, 20, 20],
+        )[0]
+        temperature = rng.choices(
+            [Temperature.COLD, Temperature.MILD, Temperature.HOT],
+            weights=[25, 50, 25],
+        )[0]
+        return Weather(track_state, temperature)
+
+    def effective_grip(self, tire: TireSpec) -> float:
+        if self.track_state == TrackState.DRY:
+            return tire.grip_dry
+        if self.track_state == TrackState.WET:
+            return tire.grip_wet
+        # DAMP: blend
+        return (tire.grip_dry + tire.grip_wet) / 2
+
+    def heat_multiplier(self, tire: TireSpec) -> float:
+        if self.temperature == Temperature.HOT:
+            return tire.heat_sensitivity
+        if self.temperature == Temperature.COLD:
+            return 0.85
+        return 1.0
+
+    def to_dict(self) -> dict:
+        return {"track_state": self.track_state.value, "temperature": self.temperature.value}
+
+
+@dataclass
+class Driver:
+    name: str
+    color: str
+    aggression: int  # 1-5
+    num_stops: int    # 1 or 2, chosen by user
+    race_compounds: list = field(default_factory=list)  # compounds for each stint, len = num_stops+1
+
+    # -- state filled in during sim --
+    quali_compound: Compound = None
+    quali_time: float = None
+    grid_position: int = None
+
+    dnf: bool = False
+    dnf_lap: int = None
+    dnf_reason: str = None
+    total_time: float = 0.0
+    current_stint_index: int = 0
+    laps_on_current_tire: int = 0
+    pit_laps: list = field(default_factory=list)  # which laps (1-indexed) include a stop
+    lap_log: list = field(default_factory=list)
+
+    def available_compounds_for_race(self):
+        """All compounds except the one used in qualifying."""
+        return [c for c in Compound if c != self.quali_compound]

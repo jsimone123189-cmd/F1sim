@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Exported race logs (generated locally via `demo.py --json`)
+*.json
