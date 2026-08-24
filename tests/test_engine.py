@@ -106,7 +106,43 @@ def test_json_log_has_expected_shape():
         for car in lap_entry["cars"]:
             assert "driver_id" in car
             assert "compound" in car
-            assert "pit" in car
+            if car.get("event") == "DNF":
+                assert "reason" in car
+            else:
+                assert "pit" in car
+
+
+# ---------------------------------------------------------------------------
+# Lap-to-lap weather evolution
+# ---------------------------------------------------------------------------
+
+def test_weather_timeline_has_one_entry_per_lap():
+    result = run_seeded(3)
+    timeline = result["weather_timeline"]
+    assert len(timeline) == NUM_LAPS
+    assert [e["lap"] for e in timeline] == list(range(1, NUM_LAPS + 1))
+
+
+def test_weather_only_steps_to_a_neighboring_state():
+    order = ["Dry", "Damp", "Wet"]
+    for seed in range(60):
+        result = run_seeded(seed)
+        states = [result["weather"]["track_state"]] + [e["track_state"] for e in result["weather_timeline"]]
+        for a, b in zip(states, states[1:]):
+            assert abs(order.index(a) - order.index(b)) <= 1
+
+
+def test_weather_eventually_evolves_across_many_races():
+    # ~3%/lap over 20 laps means most individual races see no change, but a
+    # change should show up somewhere across enough of them.
+    changed = False
+    for seed in range(150):
+        result = run_seeded(seed)
+        pre = result["weather"]["track_state"]
+        if any(e["track_state"] != pre for e in result["weather_timeline"]):
+            changed = True
+            break
+    assert changed, "expected at least one weather change across 150 seeded races"
 
 
 def test_dnf_events_recorded_in_race_log():

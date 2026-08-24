@@ -41,7 +41,8 @@ def run_simulation(drivers: list[Driver], weather: Weather, rng: random.Random) 
         for d in quali_order
     ]
 
-    classified = run_race(drivers, weather, rng)
+    pre_race_weather = weather.to_dict()
+    classified, weather_timeline = run_race(drivers, weather, rng)
 
     laps = []
     for lap in range(1, NUM_LAPS + 1):
@@ -54,6 +55,14 @@ def run_simulation(drivers: list[Driver], weather: Weather, rng: random.Random) 
         laps.append({"lap": lap, "cars": cars})
 
     events = []
+    prev_state = pre_race_weather["track_state"]
+    for entry in weather_timeline:
+        if entry["track_state"] != prev_state:
+            events.append({
+                "lap": entry["lap"], "driver_id": None, "type": "WEATHER",
+                "detail": f"Track now {entry['track_state']}",
+            })
+            prev_state = entry["track_state"]
     for d in drivers:
         for e in d.lap_log:
             did = driver_ids[id(d)]
@@ -92,7 +101,8 @@ def run_simulation(drivers: list[Driver], weather: Weather, rng: random.Random) 
 
     return {
         "num_laps": NUM_LAPS,
-        "weather": weather.to_dict(),
+        "weather": pre_race_weather,
+        "weather_timeline": weather_timeline,
         "drivers": [
             {
                 "driver_id": driver_ids[id(d)],

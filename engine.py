@@ -29,6 +29,7 @@ BASE_MECHANICAL_RATE = 0.001       # per lap
 TRAFFIC_GAP_THRESHOLD = 0.5        # seconds - "close" to car ahead
 TRAFFIC_PENALTY = 0.08             # seconds lost sitting in dirty air
 DRAFT_ORDER_REVERSED = False       # flip to True to make P1 finisher = last pick
+WEATHER_EVOLVE_CHANCE = 0.03       # per-lap chance the track state shifts one step
 
 
 class Compound(Enum):
@@ -42,6 +43,12 @@ class TrackState(Enum):
     DRY = "Dry"
     DAMP = "Damp"
     WET = "Wet"
+
+
+# Adjacency order for lap-to-lap weather evolution: a track state can only
+# step to a neighbor in this list (DRY <-> DAMP <-> WET), never jump straight
+# from DRY to WET.
+TRACK_STATE_ORDER = [TrackState.DRY, TrackState.DAMP, TrackState.WET]
 
 
 class Temperature(Enum):
@@ -117,6 +124,19 @@ class Weather:
 
     def to_dict(self) -> dict:
         return {"track_state": self.track_state.value, "temperature": self.temperature.value}
+
+    def step(self, rng: random.Random) -> bool:
+        """Small per-lap chance the track state evolves one step toward a
+        neighboring state (e.g. DRY -> DAMP). Temperature stays fixed for
+        the session. Returns True if the state changed this call."""
+        if rng.random() >= WEATHER_EVOLVE_CHANCE:
+            return False
+        idx = TRACK_STATE_ORDER.index(self.track_state)
+        options = [i for i in (idx - 1, idx + 1) if 0 <= i < len(TRACK_STATE_ORDER)]
+        if not options:
+            return False
+        self.track_state = TRACK_STATE_ORDER[rng.choice(options)]
+        return True
 
 
 @dataclass

@@ -104,7 +104,18 @@ def make_interactive_drivers(num_cars: int, rng: random.Random) -> list[Driver]:
 
 def print_weather(weather: Weather):
     print("\n=== WEATHER ===")
-    print(f"Track: {weather.track_state.value}   Temperature: {weather.temperature.value}\n")
+    print(f"Track: {weather.track_state.value}   Temperature: {weather.temperature.value}")
+    print("(track state can shift lap-to-lap during the race -- plan accordingly)\n")
+
+
+def print_weather_changes(sim_result: dict):
+    changes = [e for e in sim_result["race"]["events"] if e["type"] == "WEATHER"]
+    if not changes:
+        return
+    print("=== WEATHER CHANGES ===")
+    for e in changes:
+        print(f"Lap {e['lap']:<3} {e['detail']}")
+    print()
 
 
 def print_quali_results(ordered: list[Driver]):
@@ -185,6 +196,7 @@ def main():
     )
 
     print_strategy_summary(drivers)
+    print_weather_changes(sim_result)
     print_race_results(classified)
 
     print("=== DRAFT ORDER ===")

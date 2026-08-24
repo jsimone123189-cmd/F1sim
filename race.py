@@ -81,9 +81,20 @@ def setup_race_strategies(drivers: list[Driver], rng: random.Random):
 
 
 def run_race(drivers: list[Driver], weather: Weather, rng: random.Random):
+    """Returns (classified, weather_timeline). weather_timeline is a list of
+    {"lap", "track_state", "temperature"} snapshots, one per lap, reflecting
+    any lap-to-lap weather evolution (engine.Weather.step)."""
     setup_race_strategies(drivers, rng)
+    weather_timeline = []
 
     for lap in range(1, NUM_LAPS + 1):
+        weather.step(rng)
+        weather_timeline.append({
+            "lap": lap,
+            "track_state": weather.track_state.value,
+            "temperature": weather.temperature.value,
+        })
+
         active = [d for d in drivers if not d.dnf]
         # running order & gaps BEFORE this lap's time is added
         running_order = sorted(active, key=lambda d: d.total_time)
@@ -190,4 +201,4 @@ def run_race(drivers: list[Driver], weather: Weather, rng: random.Random):
         [d for d in drivers if d.dnf],
         key=lambda d: (-(d.dnf_lap or 0),)
     )
-    return finishers + dnfs
+    return finishers + dnfs, weather_timeline

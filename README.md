@@ -19,8 +19,11 @@ implements in the original build spec handed off with this prototype.
   lap-by-lap JSON log described in the spec (§10).
 - `demo.py` &mdash; interactive CLI: reveals weather, then prompts each driver for
   aggression / pit strategy / tire compounds (or randomizes with `--random`).
-- `viz/index.html` &mdash; standalone HTML/Canvas replay viewer for an exported
-  JSON log (playback controls, live leaderboard, event feed, draft board).
+- `viz/index.html` &mdash; standalone HTML/Canvas replay viewer: a **New Draft**
+  wizard for multiplayer strategy entry (runs an in-browser JS port of the
+  engine, no server needed), a Race tab (animated top-down cars, live running
+  order, event feed, draft board), and a Qualifying tab. Also loads a JSON
+  log exported via `--json`.
 - `tests/` &mdash; pytest suite locking in determinism and the balance numbers
   called out below.
 
@@ -40,14 +43,32 @@ spec ("reveal it to all users before they pick anything"). If stdin isn't an
 interactive terminal, `demo.py` automatically falls back to randomized
 strategies instead of hanging on a prompt.
 
-### Watching the replay
+### Running a multiplayer draft (no Python needed)
 
 Open `viz/index.html` in a browser (a copy is also published as an Artifact
-in this conversation). It loads with a bundled sample race so it's watchable
-immediately; click **Load log** to replay a JSON file exported via
-`--json`. It has a Race tab (animated oval track, live running order, event
-feed, and a draft board that locks in each pick as that car is classified)
-and a Qualifying tab (starting grid table).
+in this conversation) and click **New Draft**:
+
+1. Set the number of drafters (and an optional seed for a reproducible sim),
+   then reveal the weather &mdash; shown to everyone before anyone picks.
+2. Pass the device around: each drafter gets a card to set their name,
+   aggression, pit strategy, qualifying tire, and race tires (the qualifying
+   compound is locked out of the race-tire choices automatically).
+3. After the last driver, it simulates qualifying + the race right in the
+   browser and drops you into the Race tab to watch the replay and see the
+   draft order lock in.
+
+This runs a JS port of the same engine (`engine.py`/`qualifying.py`/`race.py`)
+embedded in the page &mdash; see "In-browser simulation engine" in
+`viz/index.html`'s script for details. It's kept formula-for-formula in sync
+with the Python source of truth, but uses its own seeded PRNG, so a given
+seed does **not** reproduce the same race between the CLI and the browser
+(each is independently reproducible).
+
+### Watching a replay from the CLI
+
+The page also loads with a bundled sample race so it's watchable immediately
+without going through the wizard; click **Load log** to replay a JSON file
+exported via `python3 demo.py --json out.json` instead.
 
 ### Running the tests
 
@@ -67,9 +88,20 @@ output only). On top of that:
 2. **JSON lap-log export** (`simulation.py`, spec §10): position, gap-to-leader,
    tire, stint lap, lap time, pit stops, and incidents for every car on every
    lap, plus qualifying results, the final result table, and the draft order.
-3. **HTML/Canvas visualization** (`viz/index.html`) consuming that log.
+3. **HTML/Canvas visualization** (`viz/index.html`) consuming that log, with
+   cars drawn as small top-down car silhouettes (body, wings, cockpit,
+   oriented to the direction of travel) rather than plain dots.
 4. **Balance-locking tests** (`tests/test_balance.py`) so future constant
    tweaks don't silently drift the tuning.
+5. **In-browser multiplayer draft wizard**: a JS port of the whole engine
+   embedded in `viz/index.html` so a group can enter strategies on one shared
+   screen and simulate the race with no server or Python install &mdash; see
+   "Running a multiplayer draft" above.
+6. **Lap-to-lap weather evolution** (the spec's stretch goal): track state
+   can shift one step (Dry&harr;Damp&harr;Wet) each lap with a small
+   probability (`WEATHER_EVOLVE_CHANCE`); the JSON log's `weather_timeline`
+   records what was in effect on every lap, and the replay's weather chip and
+   event feed update live as it changes.
 
 It also addresses the three "known things worth revisiting" from the
 prototype's own README:
@@ -102,8 +134,13 @@ prototype's own README:
   order and reasonable for the visualization (which now interpolates
   between real per-lap checkpoints), but a full on-track passing model would
   need finer-grained position data than the sim currently produces.
-- Weather is static for the whole session (the spec's stretch goal of
-  lap-to-lap weather evolution, e.g. DRY&rarr;DAMP, isn't implemented).
-- The interactive CLI is a straightforward prompt loop; a real front end
-  (web form) for strategy picks is a natural next step if this becomes a
-  multiplayer draft tool instead of a single-terminal prototype.
+- Temperature is still static for the session &mdash; only track state
+  (Dry/Damp/Wet) evolves lap-to-lap; picks are still made against the
+  pre-race reveal, so a mid-race shift is a risk drafters take on knowingly,
+  not something they can plan around exactly.
+- The in-browser wizard's JS engine uses its own seeded PRNG (mulberry32),
+  not Python's Mersenne Twister, so a seed only reproduces a race within
+  whichever implementation ran it, not across the CLI and the browser.
+- The wizard is designed for one shared screen passed around a room (a
+  "snake draft night" flow); there's no over-the-network multiplayer
+  (separate devices, live sync) &mdash; that would need a small backend.
