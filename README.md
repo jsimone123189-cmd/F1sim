@@ -26,6 +26,11 @@ implements in the original build spec handed off with this prototype.
   log exported via `--json`.
 - `tests/` &mdash; pytest suite locking in determinism and the balance numbers
   called out below.
+- `webapp/` &mdash; **Pit Wall League Rooms**: a real-time multiplayer site
+  (Cloudflare Workers + Durable Objects) where any league can create a
+  shareable room, everyone joins from their own device, and a commissioner
+  gates qualifying/the race while the server runs the simulation once,
+  authoritatively, for everyone. See `webapp/README.md`.
 
 ## Running it
 
@@ -69,6 +74,16 @@ seed does **not** reproduce the same race between the CLI and the browser
 The page also loads with a bundled sample race so it's watchable immediately
 without going through the wizard; click **Load log** to replay a JSON file
 exported via `python3 demo.py --json out.json` instead.
+
+### Running a real multiplayer league (separate devices, live)
+
+The single-device wizard above is a "pass the phone around" flow. For a
+league where everyone joins from their own device with one shared link, a
+commissioner who gates qualifying/the race, and a fresh weather reveal
+between qualifying and the race &mdash; see **`webapp/`**, a deployable
+Cloudflare Workers + Durable Objects site built for exactly that. It reuses
+this same engine (ported to JS again, server-side this time, so no client
+is trusted with the simulation) and the same replay viewer.
 
 ### Running the tests
 
@@ -141,6 +156,8 @@ prototype's own README:
 - The in-browser wizard's JS engine uses its own seeded PRNG (mulberry32),
   not Python's Mersenne Twister, so a seed only reproduces a race within
   whichever implementation ran it, not across the CLI and the browser.
-- The wizard is designed for one shared screen passed around a room (a
-  "snake draft night" flow); there's no over-the-network multiplayer
-  (separate devices, live sync) &mdash; that would need a small backend.
+- The `viz/index.html` wizard is designed for one shared screen passed
+  around a room (a "snake draft night" flow). For separate devices with
+  live sync, a commissioner role, and independent per-driver edits, see
+  `webapp/` instead &mdash; that needed a real backend (Cloudflare Workers +
+  Durable Objects), which is its own deployable project.

@@ -1,0 +1,872 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pit Wall — League Room</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏁</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <a class="brand-link" href="/">
+      <div class="brand">
+        <span class="flag" aria-hidden="true">&#127937;</span>
+        <h1>Pit Wall</h1>
+      </div>
+    </a>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <span class="chip" id="room-code-chip">ROOM &mdash;</span>
+      <span class="chip" id="role-chip" style="display:none;"></span>
+      <span class="chip" id="conn-chip">connecting&hellip;</span>
+    </div>
+  </header>
+
+  <div id="content"></div>
+
+  <footer class="credit">Fantasy Draft F1 Simulator &middot; share this room's link with your league</footer>
+</div>
+<div id="toast-root"></div>
+
+<script>
+"use strict";
+
+var CODE = (location.pathname.split('/').pop() || '').toUpperCase();
+var PID_KEY = 'pitwall_pid_' + CODE;
+var COMMISH_KEY = 'pitwall_commish_' + CODE;
+
+var participantId = localStorage.getItem(PID_KEY);
+if (!participantId){
+  participantId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('p_' + Math.random().toString(36).slice(2) + Date.now());
+  localStorage.setItem(PID_KEY, participantId);
+}
+var commissionerToken = localStorage.getItem(COMMISH_KEY) || null;
+
+var ws = null;
+var room = null;
+var lastPhase = null;
+var raceMounted = false;
+var nameDebounce = null;
+
+document.getElementById('room-code-chip').textContent = 'ROOM ' + CODE;
+
+function connect(){
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + '/api/room/' + encodeURIComponent(CODE) + '/ws');
+  ws.addEventListener('open', function(){
+    document.getElementById('conn-chip').textContent = 'live';
+    send({ type: 'join', commissionerToken: commissionerToken || undefined });
+  });
+  ws.addEventListener('message', function(evt){
+    var msg;
+    try { msg = JSON.parse(evt.data); } catch (e) { return; }
+    if (msg.type === 'state'){
+      if (!msg.room){ showFatal('This room does not exist.'); return; }
+      room = msg.room;
+      render();
+    } else if (msg.type === 'error'){
+      showToast(msg.message);
+    }
+  });
+  ws.addEventListener('close', function(){
+    document.getElementById('conn-chip').textContent = 'reconnecting…';
+    setTimeout(connect, 1500);
+  });
+  ws.addEventListener('error', function(){ ws.close(); });
+}
+function send(payload){
+  payload.participantId = participantId;
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+}
+
+function showToast(message){
+  var el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = message;
+  document.getElementById('toast-root').appendChild(el);
+  setTimeout(function(){ el.remove(); }, 3200);
+}
+function showFatal(message){
+  document.getElementById('content').innerHTML =
+    '<div class="panel card"><div class="card-body"><h2>' + escapeHtml(message) + '</h2>' +
+    '<p class="hint"><a href="/">Back to Pit Wall</a></p></div></div>';
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; });
+}
+
+// ---------------------------------------------------------------------
+// Render dispatch
+// ---------------------------------------------------------------------
+
+function mySlot(){
+  return room.slots.filter(function(s){ return s.claimedBy === participantId; })[0] || null;
+}
+function isCommissioner(){ return room.commissionerId === participantId; }
+
+function render(){
+  if (!room) return;
+
+  var active = document.activeElement;
+  var typingName = active && active.id === 'my-name-input';
+  if (typingName && lastPhase === room.phase){
+    updateChips();
+    return;
+  }
+  lastPhase = room.phase;
+  updateChips();
+
+  var content = document.getElementById('content');
+  if (room.phase === 'picks_quali'){
+    raceMounted = false;
+    content.innerHTML = renderPicksQuali();
+    wirePicksQuali();
+  } else if (room.phase === 'picks_race'){
+    raceMounted = false;
+    content.innerHTML = renderPicksRace();
+    wirePicksRace();
+  } else if (room.phase === 'race_done'){
+    if (!raceMounted){
+      content.innerHTML = renderRaceShell();
+      mountRace(room.final_result);
+      raceMounted = true;
+    }
+  }
+}
+
+function updateChips(){
+  var roleChip = document.getElementById('role-chip');
+  roleChip.style.display = '';
+  roleChip.textContent = isCommissioner() ? 'You are the commissioner' : 'You are a driver';
+}
+
+// ---------------------------------------------------------------------
+// Phase 1: qualifying picks
+// ---------------------------------------------------------------------
+
+function tireBtn(compound, selected, extraAttrs){
+  var bg = 'var(--tire-' + compound.toLowerCase() + ')';
+  var fg = compound === 'Hard' ? '#20242c' : (compound === 'Medium' ? '#2b2205' : (compound === 'Wet' ? '#04182b' : '#2a0508'));
+  return '<button type="button" class="tire-btn' + (selected ? ' selected' : '') + '" style="background:' + bg + ';color:' + fg + ';" ' + (extraAttrs || '') + '>' + compound + '</button>';
+}
+var AGGRESSION_LABELS = ["Conservative", "Cautious", "Balanced", "Assertive", "Aggressive"];
+function aggressionLabel(n){ return AGGRESSION_LABELS[n - 1] || 'Balanced'; }
+var COMPOUNDS = ['Soft', 'Medium', 'Hard', 'Wet'];
+
+function rosterHtml(getMeta){
+  var html = '<ol class="roster">';
+  room.slots.forEach(function(s){
+    var isYou = s.claimedBy === participantId;
+    var nameHtml = s.claimedBy ? escapeHtml(s.name) : '<span class="name open">open slot</span>';
+    html += '<li class="' + (isYou ? 'is-you' : '') + '">' +
+      '<span class="swatch" style="background:' + s.color_hex + '"></span>' +
+      '<span class="name">' + nameHtml + (isYou ? ' <span style="color:var(--accent-2);font-family:var(--font-mono);font-size:.7rem;">(you)</span>' : '') + '</span>' +
+      '<span class="meta">' + (getMeta ? getMeta(s) : '') + '</span>' +
+      '</li>';
+  });
+  html += '</ol>';
+  return html;
+}
+
+function renderPicksQuali(){
+  var w = room.quali_weather;
+  var slot = mySlot();
+  var claimedCount = room.slots.filter(function(s){ return s.claimedBy; }).length;
+
+  var html = '<div class="weather-reveal"><div class="track-state ' + w.track_state + '">' + w.track_state.toUpperCase() + '</div>' +
+    '<div class="track-temp">' + w.temperature + ' temperature &middot; revealed to everyone before picks</div></div>';
+
+  html += '<div class="race-grid">';
+  html += '<div class="panel"><div class="card-body">';
+  if (!slot){
+    html += '<p class="eyebrow">Step 1</p><h2>Join the grid</h2>' +
+      '<p class="hint">Pick a name to claim an open car. Slots go first-come, first-served.</p>' +
+      '<div class="field-row"><label for="claim-name">Your name</label><input type="text" id="claim-name" maxlength="24" placeholder="e.g. Alex"></div>' +
+      '<div class="actions"><span class="field-help">' + claimedCount + ' / ' + room.slots.length + ' claimed</span>' +
+      '<button class="btn btn-primary" id="claim-btn"' + (claimedCount >= room.slots.length ? ' disabled' : '') + '>Join the grid &rarr;</button></div>';
+  } else {
+    html += '<p class="eyebrow">Your car</p>' +
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;"><span class="swatch" style="width:16px;height:16px;background:' + slot.color_hex + '"></span><h2 style="margin:0;">' + slot.color + ' car</h2></div>' +
+      '<div class="field-row"><label for="my-name-input">Name</label><input type="text" id="my-name-input" maxlength="24" value="' + escapeHtml(slot.name) + '"></div>' +
+      '<div class="field-row"><label>Aggression</label><div class="agg-row"><input type="range" id="my-agg" min="1" max="5" value="' + slot.aggression + '">' +
+      '<span class="agg-label" id="my-agg-label">' + aggressionLabel(slot.aggression) + '</span></div></div>' +
+      '<div class="field-row"><label>Qualifying tire (this compound locks out of the race)</label><div class="choice-group">' +
+      COMPOUNDS.map(function(c){ return tireBtn(c, slot.quali_compound === c, 'data-quali="' + c + '"'); }).join('') + '</div></div>';
+  }
+  html += '</div></div>';
+
+  html += '<div style="display:flex;flex-direction:column;gap:16px;">';
+  html += '<div class="panel"><div class="panel-head"><span>Grid</span><span class="count">' + claimedCount + ' / ' + room.slots.length + '</span></div>' +
+    rosterHtml(function(s){ return s.claimedBy ? (aggressionLabel(s.aggression) + ' &middot; ' + s.quali_compound) : ''; }) + '</div>';
+  html += '<div class="panel"><div class="card-body">';
+  if (isCommissioner()){
+    html += '<p class="eyebrow">Commissioner</p><h2 style="font-size:1.15rem;">Ready to qualify?</h2>' +
+      '<p class="hint">Anyone who hasn\'t claimed a car will race with default settings. This can\'t be undone.</p>' +
+      '<button class="btn btn-primary btn-block" id="start-quali-btn">Start qualifying &rarr;</button>';
+  } else {
+    html += '<p class="eyebrow">Commissioner</p><h2 style="font-size:1.15rem;">Waiting to start</h2>' +
+      '<p class="hint">Only the commissioner can start qualifying. Sit tight once your picks are in.</p>';
+  }
+  html += '</div></div></div>';
+  html += '</div>';
+  return html;
+}
+
+function wirePicksQuali(){
+  var claimBtn = document.getElementById('claim-btn');
+  if (claimBtn){
+    claimBtn.addEventListener('click', function(){
+      var name = document.getElementById('claim-name').value.trim();
+      send({ type: 'claim_slot', name: name });
+    });
+  }
+  var nameEl = document.getElementById('my-name-input');
+  if (nameEl){
+    nameEl.addEventListener('input', function(){
+      clearTimeout(nameDebounce);
+      var val = nameEl.value;
+      nameDebounce = setTimeout(function(){ send({ type: 'update_quali_pick', name: val }); }, 400);
+    });
+  }
+  var aggEl = document.getElementById('my-agg');
+  if (aggEl){
+    aggEl.addEventListener('input', function(){
+      document.getElementById('my-agg-label').textContent = aggressionLabel(parseInt(aggEl.value, 10));
+    });
+    aggEl.addEventListener('change', function(){
+      send({ type: 'update_quali_pick', aggression: parseInt(aggEl.value, 10) });
+    });
+  }
+  document.querySelectorAll('[data-quali]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      send({ type: 'update_quali_pick', quali_compound: this.dataset.quali });
+    });
+  });
+  var startBtn = document.getElementById('start-quali-btn');
+  if (startBtn) startBtn.addEventListener('click', function(){ send({ type: 'start_qualifying' }); });
+}
+
+// ---------------------------------------------------------------------
+// Phase 2: race picks (after qualifying results + fresh race weather)
+// ---------------------------------------------------------------------
+
+function raceTireRowsHtml(slot){
+  var available = COMPOUNDS.filter(function(c){ return c !== slot.quali_compound; });
+  var html = '';
+  for (var s = 0; s < slot.race_compounds.length; s++){
+    html += '<div class="choice-group" style="margin-bottom:6px;">' +
+      available.map(function(c){ return tireBtn(c, slot.race_compounds[s] === c, 'data-stint="' + s + '" data-tire="' + c + '"'); }).join('') +
+      '</div>';
+  }
+  return html;
+}
+
+function renderPicksRace(){
+  var results = room.quali_result.results.slice().sort(function(a, b){ return a.grid_position - b.grid_position; });
+  var slotById = {};
+  room.slots.forEach(function(s){ slotById[s.slot] = s; });
+  var slot = mySlot();
+  var rw = room.race_weather;
+
+  var html = '<div class="panel" style="margin-bottom:16px;">' +
+    '<div class="panel-head"><span>Qualifying results</span><span class="count">' + results.length + ' drivers</span></div>' +
+    '<div style="overflow-x:auto;"><table class="quali-table"><thead><tr><th>Pos</th><th>Driver</th><th>Tire</th><th>Time</th><th>Note</th></tr></thead><tbody>';
+  results.forEach(function(r){
+    var s = slotById[r.driver_id];
+    html += '<tr><td>' + r.grid_position + '</td>' +
+      '<td><span class="swatch" style="background:' + s.color_hex + ';display:inline-block;margin-right:8px;vertical-align:middle;"></span>' + escapeHtml(s.name) + '</td>' +
+      '<td><span class="tire-chip tire-' + r.compound + '">' + r.compound + '</span></td>' +
+      '<td class="time">' + r.time.toFixed(3) + 's</td>' +
+      '<td>' + (r.mistake ? '<span class="mistake-tag">Mistake</span>' : '') + '</td></tr>';
+  });
+  html += '</tbody></table></div></div>';
+
+  html += '<div class="weather-reveal"><div class="track-state ' + rw.track_state + '">' + rw.track_state.toUpperCase() + '</div>' +
+    '<div class="track-temp">' + rw.temperature + ' temperature &middot; fresh conditions for the race</div></div>';
+
+  html += '<div class="race-grid">';
+  html += '<div class="panel"><div class="card-body">';
+  if (slot){
+    html += '<p class="eyebrow">Your race strategy</p>' +
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;"><span class="swatch" style="width:16px;height:16px;background:' + slot.color_hex + '"></span><h2 style="margin:0;">' + slot.color + ' car</h2></div>' +
+      '<p class="hint">' + slot.quali_compound + ' is locked out &mdash; pick from the remaining three compounds.</p>' +
+      '<div class="field-row"><label>Pit strategy</label><div class="choice-group">' +
+      '<button type="button" class="choice-btn' + (slot.num_stops === 1 ? ' selected' : '') + '" data-stops="1">1-stop</button>' +
+      '<button type="button" class="choice-btn' + (slot.num_stops === 2 ? ' selected' : '') + '" data-stops="2">2-stop</button>' +
+      '</div></div>' +
+      '<div class="field-row"><label>Race tires (one per stint)</label>' + raceTireRowsHtml(slot) + '</div>';
+  } else {
+    html += '<p class="eyebrow">No car</p><h2 style="font-size:1.15rem;">You didn\'t claim a car</h2>' +
+      '<p class="hint">Qualifying is already locked in, so this room\'s grid is set. You can still watch.</p>';
+  }
+  html += '</div></div>';
+
+  html += '<div style="display:flex;flex-direction:column;gap:16px;">';
+  html += '<div class="panel"><div class="panel-head"><span>Grid</span></div>' +
+    rosterHtml(function(s){ return s.num_stops + '-stop &middot; ' + s.race_compounds.join(' &rarr; '); }) + '</div>';
+  html += '<div class="panel"><div class="card-body">';
+  if (isCommissioner()){
+    html += '<p class="eyebrow">Commissioner</p><h2 style="font-size:1.15rem;">Ready to race?</h2>' +
+      '<p class="hint">Everyone races with whatever strategy is currently set. This can\'t be undone.</p>' +
+      '<button class="btn btn-primary btn-block" id="start-race-btn">Start the race &rarr;</button>';
+  } else {
+    html += '<p class="eyebrow">Commissioner</p><h2 style="font-size:1.15rem;">Waiting to start</h2>' +
+      '<p class="hint">Only the commissioner can start the race.</p>';
+  }
+  html += '</div></div></div>';
+  html += '</div>';
+  return html;
+}
+
+function wirePicksRace(){
+  var slot = mySlot();
+  if (slot){
+    document.querySelectorAll('[data-stops]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var numStops = parseInt(this.dataset.stops, 10);
+        var available = COMPOUNDS.filter(function(c){ return c !== slot.quali_compound; });
+        var stints = numStops + 1;
+        var rc = slot.race_compounds.slice(0, stints);
+        while (rc.length < stints) rc.push(available[0]);
+        send({ type: 'update_race_pick', num_stops: numStops, race_compounds: rc });
+      });
+    });
+    document.querySelectorAll('[data-stint]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var rc = slot.race_compounds.slice();
+        rc[parseInt(this.dataset.stint, 10)] = this.dataset.tire;
+        send({ type: 'update_race_pick', num_stops: slot.num_stops, race_compounds: rc });
+      });
+    });
+  }
+  var startBtn = document.getElementById('start-race-btn');
+  if (startBtn) startBtn.addEventListener('click', function(){ send({ type: 'start_race' }); });
+}
+
+// ---------------------------------------------------------------------
+// Phase 3: race replay
+// ---------------------------------------------------------------------
+
+function renderRaceShell(){
+  return '' +
+    '<div class="race-grid">' +
+      '<div class="panel">' +
+        '<div class="panel-head"><span>Track</span><span class="count">LAP <span id="lap-now">0</span>/<span id="lap-total">20</span> &middot; <span id="race-weather-chip"></span> &middot; <span id="track-status">racing</span></span></div>' +
+        '<div class="track-wrap"><canvas id="track" width="900" height="520" role="img" aria-label="Animated top-down view of cars racing around the track"></canvas></div>' +
+        '<div class="controls">' +
+          '<button class="play-btn" id="play-btn" aria-label="Play">&#9654;</button>' +
+          '<input type="range" class="scrub" id="scrub" min="0" max="1000" value="0" aria-label="Race progress">' +
+          '<span class="clock-label" id="clock-label">0.0s</span>' +
+          '<select id="speed" aria-label="Playback speed">' +
+            '<option value="0.5">0.5&times;</option><option value="1">1&times;</option>' +
+            '<option value="2" selected>2&times;</option><option value="4">4&times;</option><option value="8">8&times;</option>' +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:16px;">' +
+        '<div class="panel"><div class="panel-head"><span>Running order</span><span class="count" id="lb-count"></span></div><ol class="leaderboard" id="leaderboard"></ol></div>' +
+        '<div class="panel"><div class="panel-head"><span>Event feed</span></div><ul class="event-feed" id="event-feed"><li class="empty">Events will appear here as the race unfolds.</li></ul></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="panel" style="margin-top:16px;">' +
+      '<div class="panel-head"><span>Draft board</span><span class="count">pick locks in as each car is classified</span></div>' +
+      '<div class="draft-board" id="draft-board"></div>' +
+    '</div>';
+}
+
+// ---------------------------------------------------------------------
+// Replay engine (ported from viz/index.html — same JSON schema, same
+// car-sprite renderer, driven here by the room's server-computed result)
+// ---------------------------------------------------------------------
+
+var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+var raceData = null;
+var checkpoints = null;
+var driversById = null;
+var clockMax = 1;
+var clock = 0;
+var playing = false;
+var speed = 2;
+var lastFrameTs = null;
+var domThrottle = 0;
+var trailHistory = {};
+var laneOffset = {};
+var canvas = null;
+var ctx = null;
+
+function fmtTime(t){ return t == null ? "--" : t.toFixed(1) + "s"; }
+function fmtGap(g){ return g == null ? "--" : "+" + g.toFixed(2) + "s"; }
+
+var TRACK = { cx: 450, cy: 260, halfLen: 260, r: 150 };
+
+function trackPoint(f){
+  f = ((f % 1) + 1) % 1;
+  var straight = TRACK.halfLen * 2;
+  var arc = Math.PI * TRACK.r;
+  var total = 2 * straight + 2 * arc;
+  var d = f * total;
+
+  if (d < straight){
+    var x = TRACK.cx - TRACK.halfLen + d;
+    return { x: x, y: TRACK.cy - TRACK.r, angle: 0 };
+  }
+  d -= straight;
+  if (d < arc){
+    var a = -Math.PI/2 + (d / arc) * Math.PI;
+    return { x: TRACK.cx + TRACK.halfLen + TRACK.r * Math.cos(a), y: TRACK.cy + TRACK.r * Math.sin(a), angle: a + Math.PI/2 };
+  }
+  d -= arc;
+  if (d < straight){
+    var x2 = TRACK.cx + TRACK.halfLen - d;
+    return { x: x2, y: TRACK.cy + TRACK.r, angle: Math.PI };
+  }
+  d -= straight;
+  var a2 = Math.PI/2 + (d / arc) * Math.PI;
+  return { x: TRACK.cx - TRACK.halfLen + TRACK.r * Math.cos(a2), y: TRACK.cy + TRACK.r * Math.sin(a2), angle: a2 + Math.PI/2 };
+}
+
+function drawTrack(){
+  var w = canvas.width, h = canvas.height;
+  ctx.clearRect(0,0,w,h);
+
+  var styles = getComputedStyle(document.documentElement);
+  var trackSurface = styles.getPropertyValue('--track-surface').trim() || '#1a2029';
+  var trackLine = styles.getPropertyValue('--track-line').trim() || '#333d4f';
+
+  ctx.fillStyle = trackSurface;
+  ctx.fillRect(0,0,w,h);
+
+  var band = 34;
+  [TRACK.r + band/2, TRACK.r - band/2].forEach(function(r, idx){
+    ctx.beginPath();
+    for (var i=0;i<=400;i++){
+      var f = i/400;
+      var p = trackPointAtRadius(f, r);
+      if (i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = trackLine;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  });
+
+  var sf = trackPoint(0);
+  ctx.save();
+  ctx.translate(sf.x, sf.y);
+  ctx.rotate(sf.angle);
+  ctx.fillStyle = '#e8ecf0';
+  for (var seg=-1; seg<=1; seg+=2){
+    ctx.fillRect(-2, seg*(band/2)/2 - 4, 4, 8);
+  }
+  ctx.restore();
+}
+
+function trackPointAtRadius(f, rOverride){
+  var save = TRACK.r;
+  TRACK.r = rOverride;
+  var p = trackPoint(f);
+  TRACK.r = save;
+  return p;
+}
+
+function stateAt(driverId, t){
+  var cps = checkpoints[driverId];
+  var prev = cps[0];
+  var next = null;
+  var dnfCp = null;
+
+  for (var i=1;i<cps.length;i++){
+    var cp = cps[i];
+    if (cp.dnf){ dnfCp = cp; break; }
+    if (cp.t <= t){ prev = cp; }
+    else { next = cp; break; }
+  }
+
+  if (dnfCp){
+    var frac = prev.lap / raceData.num_laps;
+    var reached = t >= (prev.t || 0);
+    return {
+      status: reached ? 'dnf' : 'racing',
+      trackFrac: frac,
+      progress: prev.lap - 0.4,
+      lap: dnfCp.lap,
+      compound: dnfCp.compound,
+      reason: dnfCp.reason,
+      position: null,
+      gap: null
+    };
+  }
+
+  if (!next){
+    if (cps.length === 1){
+      return { status:'pending', trackFrac:0, progress:0, lap:0, compound: driversById[driverId].quali_compound, position:null, gap:null };
+    }
+    return {
+      status:'finished', trackFrac:0, progress: raceData.num_laps + (100000 - prev.t)/1000000,
+      lap: raceData.num_laps, compound: prev.compound, position: prev.position, gap: prev.gap
+    };
+  }
+
+  var span = next.t - (prev.t||0);
+  var localT = span>0 ? (t-(prev.t||0))/span : 1;
+  if (localT<0) localT=0; if (localT>1) localT=1;
+  var lapNum = next.lap;
+  var trackFrac = ((lapNum-1)+localT)/raceData.num_laps;
+  return {
+    status:'racing', trackFrac: trackFrac, progress: (lapNum-1)+localT,
+    lap: lapNum, compound: next.compound, position: prev.position, gap: prev.gap,
+    justPitted: next.pit, overtake: next.overtake
+  };
+}
+
+function orderedField(t){
+  var ids = raceData.drivers.map(function(d){return d.driver_id;});
+  var states = ids.map(function(id){ return { id:id, s: stateAt(id,t) }; });
+  states.sort(function(a,b){
+    var rankA = a.s.status==='dnf' ? 1 : 0;
+    var rankB = b.s.status==='dnf' ? 1 : 0;
+    if (rankA !== rankB) return rankA - rankB;
+    return b.s.progress - a.s.progress;
+  });
+  return states;
+}
+
+function renderCars(t){
+  var field = orderedField(t);
+  for (var fi = field.length - 1; fi >= 0; fi--){
+    var entry = field[fi];
+    var s = entry.s;
+    if (s.status==='pending') continue;
+    var driver = driversById[entry.id];
+    var p = trackPoint(s.trackFrac);
+    var off = laneOffset[entry.id] || 0;
+    p = { x: p.x + off * Math.cos(p.angle + Math.PI/2), y: p.y + off * Math.sin(p.angle + Math.PI/2) };
+
+    if (!reducedMotion && s.status !== 'dnf'){
+      var hist = trailHistory[entry.id];
+      hist.push({x:p.x,y:p.y});
+      if (hist.length>6) hist.shift();
+      for (var i=0;i<hist.length-1;i++){
+        var a = (i+1)/hist.length * 0.28;
+        ctx.beginPath();
+        ctx.fillStyle = hexWithAlpha(driver.color_hex, a);
+        ctx.arc(hist[i].x, hist[i].y, 3.2, 0, Math.PI*2);
+        ctx.fill();
+      }
+    }
+
+    drawCarSprite(p.x, p.y, p.angle, driver.color_hex, s.status==='dnf');
+
+    if (s.status==='dnf'){
+      ctx.strokeStyle = '#ef4b4b';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(p.x-4,p.y-11); ctx.lineTo(p.x+4,p.y-3);
+      ctx.moveTo(p.x-4,p.y-3); ctx.lineTo(p.x+4,p.y-11);
+      ctx.stroke();
+    }
+  }
+}
+
+function hexWithAlpha(hex, alpha){
+  var r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return 'rgba('+r+','+g+','+b+','+alpha+')';
+}
+function shadeColor(hex, percent){
+  var r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  var t = percent < 0 ? 0 : 255;
+  var p = Math.abs(percent) / 100;
+  r = Math.round((t - r) * p) + r;
+  g = Math.round((t - g) * p) + g;
+  b = Math.round((t - b) * p) + b;
+  return 'rgb(' + r + ',' + g + ',' + b + ')';
+}
+function roundRectPath(x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function drawCarSprite(x, y, angle, colorHex, dnf){
+  var L = 16, W = 7;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.globalAlpha = dnf ? 0.5 : 1;
+
+  var bodyColor = dnf ? '#4a5265' : colorHex;
+  var wingColor = dnf ? '#3d4453' : shadeColor(colorHex, -35);
+
+  ctx.fillStyle = wingColor;
+  ctx.fillRect(-L/2 - 2.2, -W/2 - 1.8, 2.6, W + 3.6);
+  ctx.fillRect(L/2 - 1.4, -W/2 - 2.4, 2.2, W + 4.8);
+  ctx.fillStyle = wingColor;
+  roundRectPath(-L/2 + 3.5, -W/2 - 0.6, 6, W + 1.2, 1.4);
+  ctx.fill();
+  ctx.fillStyle = bodyColor;
+  roundRectPath(-L/2, -W/2, L, W, 2.4);
+  ctx.fill();
+  ctx.lineWidth = 0.8;
+  ctx.strokeStyle = 'rgba(6,8,12,0.75)';
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(L/2 - 1, -1.6);
+  ctx.lineTo(L/2 + 2.2, 0);
+  ctx.lineTo(L/2 - 1, 1.6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgba(8,10,15,0.8)';
+  ctx.beginPath();
+  ctx.ellipse(0.8, 0, 2.8, 2.1, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function setRaceWeatherChip(w){
+  var el = document.getElementById('race-weather-chip');
+  if (el) el.textContent = w.track_state + ' / ' + w.temperature;
+}
+function weatherAt(t){
+  if (!raceData.weather_timeline || !raceData.weather_timeline.length) return raceData.weather;
+  var field = orderedField(t);
+  var leadLap = 0;
+  field.forEach(function(e){ if (e.s.lap > leadLap) leadLap = e.s.lap; });
+  if (leadLap <= 0) return raceData.weather;
+  var entry = raceData.weather_timeline[Math.min(leadLap, raceData.weather_timeline.length) - 1];
+  return entry ? { track_state: entry.track_state, temperature: entry.temperature } : raceData.weather;
+}
+
+function renderFrame(force){
+  drawTrack();
+  renderCars(clock);
+
+  domThrottle++;
+  if (force || domThrottle % 5 === 0){
+    updateLeaderboard(clock);
+    updateEventFeed(clock);
+    updateDraftBoard(clock);
+    updateLapCounter(clock);
+    setRaceWeatherChip(weatherAt(clock));
+  }
+  document.getElementById('scrub').value = Math.round((clock/clockMax)*1000);
+  document.getElementById('clock-label').textContent = fmtTime(clock);
+}
+
+function updateLapCounter(t){
+  var field = orderedField(t);
+  var leadLap = 0;
+  field.forEach(function(e){ if (e.s.lap > leadLap) leadLap = e.s.lap; });
+  document.getElementById('lap-now').textContent = Math.min(leadLap, raceData.num_laps);
+  document.getElementById('lap-total').textContent = raceData.num_laps;
+  document.getElementById('track-status').textContent = t >= clockMax ? 'finished' : 'racing';
+}
+
+function updateLeaderboard(t){
+  var field = orderedField(t);
+  var el = document.getElementById('leaderboard');
+  var html = '';
+  field.forEach(function(entry, idx){
+    var s = entry.s;
+    var driver = driversById[entry.id];
+    var rowClass = s.status==='dnf' ? 'lb-row is-dnf' : 'lb-row';
+    var gapHtml;
+    if (s.status==='dnf'){ gapHtml = '<span class="lb-gap out">OUT L' + s.lap + '</span>'; }
+    else if (idx===0){ gapHtml = '<span class="lb-gap leader">LEAD</span>'; }
+    else { gapHtml = '<span class="lb-gap">' + fmtGap(s.gap) + '</span>'; }
+    var tire = s.compound || driver.quali_compound;
+    html += '<li class="'+rowClass+'">' +
+      '<span class="lb-pos">'+(idx+1)+'</span>' +
+      '<span class="swatch" style="background:'+driver.color_hex+'"></span>' +
+      '<span class="lb-name">'+escapeHtml(driver.name)+'</span>' +
+      '<span class="tire-chip tire-'+tire+'">'+tire[0]+'</span>' +
+      gapHtml +
+      '</li>';
+  });
+  el.innerHTML = html;
+  document.getElementById('lb-count').textContent = raceData.drivers.length + ' cars';
+}
+
+function eventTriggerTime(ev){
+  if (ev.driver_id == null){
+    var best = Infinity;
+    Object.keys(checkpoints).forEach(function(id){
+      checkpoints[id].forEach(function(cp){
+        if (!cp.dnf && cp.lap===ev.lap && cp.t!=null && cp.t<best) best = cp.t;
+      });
+    });
+    return isFinite(best) ? best : 0;
+  }
+  var arr = checkpoints[ev.driver_id];
+  var best = 0;
+  for (var i=0;i<arr.length;i++){
+    var cp = arr[i];
+    if (cp.dnf && cp.lap===ev.lap) return best;
+    if (!cp.dnf && cp.lap===ev.lap) return cp.t;
+    if (!cp.dnf && cp.t!=null && cp.lap < ev.lap) best = cp.t;
+  }
+  return best;
+}
+
+function updateEventFeed(t){
+  var events = raceData.race.events || [];
+  var visible = events.filter(function(ev){ return eventTriggerTime(ev) <= t; });
+  var el = document.getElementById('event-feed');
+  if (visible.length===0){ el.innerHTML = '<li class="empty">Events will appear here as the race unfolds.</li>'; return; }
+  var html = '';
+  for (var i=visible.length-1;i>=0;i--){
+    var ev = visible[i];
+    if (ev.driver_id == null){
+      html += '<li class="ev-global">' +
+        '<span class="ev-lap">L'+ev.lap+'</span>' +
+        '<span class="ev-dot"></span>' +
+        '<span class="ev-type-'+ev.type+'">'+escapeHtml(ev.detail)+'</span>' +
+        '</li>';
+      continue;
+    }
+    var driver = driversById[ev.driver_id];
+    html += '<li>' +
+      '<span class="ev-lap">L'+ev.lap+'</span>' +
+      '<span class="ev-dot" style="background:'+driver.color_hex+'"></span>' +
+      '<span style="color:var(--text);flex:none;">'+escapeHtml(driver.name)+'</span>' +
+      '<span class="ev-type-'+ev.type+'">'+escapeHtml(ev.detail)+'</span>' +
+      '</li>';
+  }
+  el.innerHTML = html;
+}
+
+function buildDraftBoardShell(){
+  var order = raceData.result.draft_order;
+  var el = document.getElementById('draft-board');
+  var html = '';
+  order.forEach(function(driverId, i){
+    html += '<div class="draft-slot" id="slot-'+i+'"><span class="pick-num">'+(i+1)+'</span><span class="pick-name pending">TBD</span></div>';
+  });
+  el.innerHTML = html;
+}
+
+function updateDraftBoard(t){
+  var order = raceData.result.draft_order;
+  order.forEach(function(driverId, i){
+    var s = stateAt(driverId, t);
+    var slot = document.getElementById('slot-'+i);
+    if (!slot) return;
+    var decided = s.status==='finished' || s.status==='dnf';
+    if (decided && !slot.classList.contains('filled')){
+      var driver = driversById[driverId];
+      slot.classList.add('filled');
+      slot.innerHTML = '<span class="pick-num">'+(i+1)+'</span>' +
+        '<span class="swatch" style="background:'+driver.color_hex+'"></span>' +
+        '<span class="pick-name">'+escapeHtml(driver.name)+'</span>';
+    }
+  });
+}
+
+function tick(ts){
+  if (!playing) return;
+  if (lastFrameTs==null) lastFrameTs = ts;
+  var dt = (ts - lastFrameTs)/1000;
+  lastFrameTs = ts;
+  clock += dt * speed * 3;
+  if (clock >= clockMax){
+    clock = clockMax;
+    playing = false;
+    document.getElementById('play-btn').innerHTML = '&#9654;';
+  }
+  renderFrame(false);
+  if (playing) requestAnimationFrame(tick);
+}
+
+function setPlaying(v){
+  playing = v;
+  document.getElementById('play-btn').innerHTML = playing ? '&#10074;&#10074;' : '&#9654;';
+  document.getElementById('play-btn').setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  if (playing){
+    if (clock >= clockMax) clock = 0;
+    lastFrameTs = null;
+    requestAnimationFrame(tick);
+  }
+}
+
+function mountRace(data){
+  raceData = data;
+  driversById = {};
+  data.drivers.forEach(function(d){ driversById[d.driver_id] = d; });
+
+  checkpoints = {};
+  data.drivers.forEach(function(d){
+    checkpoints[d.driver_id] = [{ t: 0, lap: 0, position: d.driver_id, dnf:false }];
+  });
+  data.race.laps.forEach(function(lapEntry){
+    lapEntry.cars.forEach(function(car){
+      var arr = checkpoints[car.driver_id];
+      if (car.event === 'DNF'){
+        arr.push({ t: null, lap: car.lap, dnf: true, reason: car.reason, compound: car.compound });
+      } else {
+        arr.push({
+          t: car.total_time, lap: car.lap, position: car.position, gap: car.gap_to_leader,
+          compound: car.compound, pit: car.pit, pitLoss: car.pit_loss, overtake: car.overtake, dnf: false
+        });
+      }
+    });
+  });
+
+  var maxT = 0;
+  (data.result.classified || []).forEach(function(c){ if (c.total_time > maxT) maxT = c.total_time; });
+  Object.keys(checkpoints).forEach(function(id){
+    checkpoints[id].forEach(function(cp){ if (cp.t != null && cp.t > maxT) maxT = cp.t; });
+  });
+  clockMax = maxT || 1;
+  clock = 0;
+  trailHistory = {};
+  laneOffset = {};
+  data.drivers.forEach(function(d, i){
+    trailHistory[d.driver_id] = [];
+    laneOffset[d.driver_id] = ((i % 5) - 2) * 4.5;
+  });
+
+  canvas = document.getElementById('track');
+  ctx = canvas.getContext('2d');
+
+  buildDraftBoardShell();
+
+  document.getElementById('play-btn').addEventListener('click', function(){ setPlaying(!playing); });
+  document.getElementById('scrub').addEventListener('input', function(e){
+    playing = false;
+    document.getElementById('play-btn').innerHTML = '&#9654;';
+    clock = (e.target.value/1000) * clockMax;
+    renderFrame(true);
+  });
+  document.getElementById('speed').addEventListener('change', function(e){
+    speed = parseFloat(e.target.value);
+  });
+
+  function resizeCanvas(){
+    var wrap = canvas.parentElement;
+    var w = wrap.clientWidth;
+    canvas.style.height = (w * (520/900)) + 'px';
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  renderFrame(true);
+  setPlaying(true);
+}
+
+// ---------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------
+
+connect();
+</script>
+</body>
+</html>

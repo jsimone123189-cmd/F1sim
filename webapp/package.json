@@ -1,0 +1,15 @@
+{
+  "name": "f1sim-league",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Multi-league real-time draft rooms for the Fantasy Draft F1 Simulator, on Cloudflare Workers + Durable Objects.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.125.0"
+  }
+}

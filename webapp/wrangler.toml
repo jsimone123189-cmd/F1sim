@@ -1,0 +1,25 @@
+name = "f1sim-league"
+main = "src/worker.js"
+compatibility_date = "2025-01-01"
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "LeagueRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["LeagueRoom"]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+# Route every request through the Worker first: /room/:code needs to be
+# rewritten to room.html ourselves, and without this Cloudflare's own
+# clean-URL asset routing 307-redirects /room/:code -> /room before our
+# fetch handler ever runs.
+run_worker_first = true
+# "none" serves files at their literal path with no extension-stripping
+# redirect -- otherwise ASSETS.fetch() on the rewritten "/room.html" request
+# itself 307s to the clean URL "/room", which we'd then return to the
+# browser and lose the room code.
+html_handling = "none"
