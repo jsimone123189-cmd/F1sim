@@ -101,7 +101,7 @@ to develop.
    ```
    Wrangler creates the Worker, the `LeagueRoom` Durable Object class, and
    uploads `public/` as static assets, then prints your live URL &mdash;
-   by default `https://f1sim-league.<your-subdomain>.workers.dev`. That's
+   by default `https://draftordersim.<your-subdomain>.workers.dev`. That's
    the link a commissioner shares to create a room; `/room/:code` is what
    they then share with their league.
 4. **Custom domain (optional)**: add a `routes` entry to `wrangler.toml`

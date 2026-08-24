@@ -1,5 +1,5 @@
 {
-  "name": "f1sim-league",
+  "name": "draftordersim",
   "version": "1.0.0",
   "private": true,
   "description": "Multi-league real-time draft rooms for the Fantasy Draft F1 Simulator, on Cloudflare Workers + Durable Objects.",
