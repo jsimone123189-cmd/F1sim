@@ -235,6 +235,8 @@ header.topbar{
 .agg-label{font-family:var(--font-mono);font-size:.78rem;color:var(--accent-strong);min-width:118px;text-align:right;}
 
 .choice-group{display:flex;gap:8px;flex-wrap:wrap;}
+.tire-row{display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;}
+.tire-row-label{font-family:var(--font-mono);font-size:.72rem;color:var(--text-faint);min-width:52px;}
 .choice-btn{
   appearance:none;
   border:1px solid var(--border);

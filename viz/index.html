@@ -610,6 +610,8 @@
     gap:8px;
     flex-wrap:wrap;
   }
+  .tire-row{display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;}
+  .tire-row-label{font-family:var(--font-mono);font-size:.72rem;color:var(--text-faint);min-width:52px;}
   .choice-btn{
     appearance:none;
     border:1px solid var(--border);
@@ -723,8 +725,9 @@
           <span class="clock-label" id="clock-label">0.0s</span>
           <select id="speed" aria-label="Playback speed">
             <option value="0.5">0.5&times;</option>
+            <option value="0.75" selected>0.75&times;</option>
             <option value="1">1&times;</option>
-            <option value="2" selected>2&times;</option>
+            <option value="2">2&times;</option>
             <option value="4">4&times;</option>
             <option value="8">8&times;</option>
           </select>
@@ -772,7 +775,7 @@ var driversById = null;
 var clockMax = 1;
 var clock = 0;
 var playing = false;
-var speed = 2;
+var speed = 0.75;
 var lastFrameTs = null;
 var domThrottle = 0;
 var trailHistory = {}; // driver_id -> array of {x,y}
@@ -2176,13 +2179,12 @@ function raceTireRowsHtml(d){
   var available = COMPOUNDS.filter(function(c){ return c !== d.quali_compound; });
   var html = '';
   for (var s = 0; s < d.race_compounds.length; s++){
-    // A tire already used by another stint isn't offered here -- this
-    // stint's own current pick still shows (selected) so re-clicking it is
-    // a no-op instead of a dead end.
-    var options = available.filter(function(c){ return c === d.race_compounds[s] || d.race_compounds.indexOf(c) === -1; });
-    html += '<div class="choice-group" style="margin-bottom:6px;">' +
-      options.map(function(c){ return tireBtn(c, d.race_compounds[s] === c, 'data-stint="' + s + '" data-tire="' + c + '"'); }).join('') +
-      '</div>';
+    // All compounds are always shown for every stint; picking one that's
+    // already used by another stint swaps the two stints' tires (handled in
+    // the stint click handler) rather than hiding options, which read as "stuck".
+    html += '<div class="tire-row"><span class="tire-row-label">Stint ' + (s + 1) + '</span><div class="choice-group">' +
+      available.map(function(c){ return tireBtn(c, d.race_compounds[s] === c, 'data-stint="' + s + '" data-tire="' + c + '"'); }).join('') +
+      '</div></div>';
   }
   return html;
 }
@@ -2314,7 +2316,13 @@ function wireDriverStep(){
   });
   scope.querySelectorAll('[data-stint]').forEach(function(btn){
     btn.addEventListener('click', function(){
-      d.race_compounds[parseInt(this.dataset.stint, 10)] = this.dataset.tire;
+      var stintIdx = parseInt(this.dataset.stint, 10);
+      var tire = this.dataset.tire;
+      // Every compound is always clickable; if another stint already has
+      // this one, swap the two stints' tires instead of creating a repeat.
+      var otherIdx = d.race_compounds.indexOf(tire);
+      if (otherIdx !== -1 && otherIdx !== stintIdx) d.race_compounds[otherIdx] = d.race_compounds[stintIdx];
+      d.race_compounds[stintIdx] = tire;
       renderWizard();
     });
   });
