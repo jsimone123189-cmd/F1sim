@@ -8,6 +8,7 @@ Two stages:
 Run `demo.py` for an interactive (or randomized) playtest session.
 """
 
+import math
 import random
 from dataclasses import dataclass, field
 from enum import Enum
@@ -147,12 +148,19 @@ class Weather:
 
 @dataclass
 class Circuit:
-    """A race track layout. `shape` is a compact procedural description the
-    visualization renders from -- a base ellipse (rx, ry) perturbed by a sum
-    of cosine harmonics (r(theta) = 1 + sum(amp * cos(k*theta + phase))) --
-    rather than a hand-authored point list, so it's cheap to keep the Python
-    engine and both JS renderers (viz/index.html, webapp) drawing the exact
-    same circuit from the same small config that travels in the JSON log.
+    """A race track layout. `shape` is a compact description the
+    visualization renders from: a base ellipse (rx, ry) and a list of
+    `vertices` (theta radians, radial scale, corner roundedness 0-1) placed
+    at strictly increasing theta around it. The renderer connects
+    consecutive vertices with straight lines and rounds each corner with a
+    circular fillet sized by that vertex's `corner` value (0 = sharp hairpin,
+    1 = as swept as the surrounding geometry allows) -- the same
+    straight-plus-corner vocabulary a real circuit blueprint is drawn with,
+    instead of a smooth blob. Strictly increasing theta around a common
+    center guarantees the resulting loop is simple (never self-intersects).
+    A small config like this is cheap to keep the Python engine and both JS
+    renderers (viz/index.html, webapp) drawing the exact same circuit from
+    what travels in the JSON log.
 
     The gameplay attributes give each circuit real strategic identity:
     - deg_multiplier: tire wear multiplier (twisty circuits chew tires faster)
@@ -180,36 +188,62 @@ class Circuit:
         }
 
 
+def _polar_shape(rx: float, ry: float, points: list[tuple[float, float, float]]) -> dict:
+    """points: list of (theta_degrees, radial_scale, corner_roundedness),
+    theta strictly increasing 0-360. See Circuit.shape docstring above."""
+    return {
+        "rx": rx, "ry": ry,
+        "vertices": [{"theta": math.radians(deg), "radius": r, "corner": c} for deg, r, c in points],
+    }
+
+
 CIRCUITS = [
     Circuit(
         id="sable-bay", name="Sable Bay Circuit",
         description="Long straights and sweeping bends -- low deg, easy to pass, punishing at speed.",
         deg_multiplier=0.85, overtake_difficulty=0.65, crash_rate_multiplier=1.1, pit_loss_bonus=0.0,
-        shape={"rx": 260, "ry": 150, "terms": [{"k": 2, "amp": 0.10, "phase": 0.3}, {"k": 3, "amp": 0.06, "phase": 1.8}]},
+        shape=_polar_shape(270, 160, [
+            (0, 1.0, 0.45), (70, 0.85, 0.4), (150, 1.05, 0.45), (220, 0.75, 0.4), (300, 0.95, 0.45),
+        ]),
     ),
     Circuit(
         id="verdant-ridge", name="Verdant Ridge Hillclimb",
         description="Constant direction changes -- technical, hard on tires, very hard to pass.",
         deg_multiplier=1.25, overtake_difficulty=1.3, crash_rate_multiplier=1.0, pit_loss_bonus=0.2,
-        shape={"rx": 190, "ry": 160, "terms": [{"k": 5, "amp": 0.14, "phase": 0.4}, {"k": 7, "amp": 0.08, "phase": 2.1}, {"k": 2, "amp": 0.05, "phase": 1.0}]},
+        shape=_polar_shape(200, 170, [
+            (0, 1.0, 0.22), (36, 0.68, 0.15), (72, 0.98, 0.28), (108, 0.62, 0.15),
+            (144, 1.0, 0.3), (180, 0.7, 0.18), (216, 0.92, 0.25), (252, 0.6, 0.15),
+            (288, 0.98, 0.3), (324, 0.75, 0.2),
+        ]),
     ),
     Circuit(
         id="iron-harbor", name="Iron Harbor Street Circuit",
         description="Tight street course, walls close in -- brutal on mistakes, brutal to overtake.",
         deg_multiplier=1.0, overtake_difficulty=1.6, crash_rate_multiplier=1.5, pit_loss_bonus=0.4,
-        shape={"rx": 150, "ry": 120, "terms": [{"k": 4, "amp": 0.16, "phase": 0.9}, {"k": 6, "amp": 0.10, "phase": 2.5}]},
+        shape=_polar_shape(200, 120, [
+            (10, 1.0, 0.12), (40, 0.9, 0.1), (70, 1.0, 0.12), (100, 0.82, 0.1),
+            (130, 1.0, 0.12), (160, 0.88, 0.1), (190, 1.0, 0.12), (220, 0.8, 0.1),
+            (250, 1.0, 0.12), (280, 0.88, 0.1), (310, 1.0, 0.12), (340, 0.85, 0.1),
+        ]),
     ),
     Circuit(
         id="sunspire", name="Sunspire Speedway",
         description="Elongated high-speed bowl with a couple of chicanes -- fast, tires take a beating.",
         deg_multiplier=1.1, overtake_difficulty=0.75, crash_rate_multiplier=1.05, pit_loss_bonus=0.0,
-        shape={"rx": 280, "ry": 110, "terms": [{"k": 2, "amp": 0.06, "phase": 0.0}, {"k": 8, "amp": 0.03, "phase": 1.2}]},
+        shape=_polar_shape(270, 150, [
+            (0, 1.0, 0.65), (15, 0.88, 0.18), (30, 1.0, 0.65), (90, 0.55, 0.55), (150, 1.0, 0.65),
+            (165, 1.0, 0.65), (180, 0.88, 0.18), (195, 1.0, 0.65), (210, 1.0, 0.65),
+            (270, 0.55, 0.55), (330, 1.0, 0.65), (345, 1.0, 0.65),
+        ]),
     ),
     Circuit(
         id="northgate", name="Northgate Endurance Circuit",
         description="A balanced, flowing all-rounder -- no extreme strengths or weaknesses.",
         deg_multiplier=1.0, overtake_difficulty=1.0, crash_rate_multiplier=1.0, pit_loss_bonus=0.1,
-        shape={"rx": 230, "ry": 170, "terms": [{"k": 3, "amp": 0.09, "phase": 0.6}, {"k": 5, "amp": 0.05, "phase": 2.0}]},
+        shape=_polar_shape(230, 170, [
+            (0, 1.0, 0.42), (50, 0.8, 0.38), (100, 1.0, 0.42), (150, 0.8, 0.35),
+            (200, 1.0, 0.42), (250, 0.8, 0.38), (300, 1.0, 0.42),
+        ]),
     ),
 ]
 

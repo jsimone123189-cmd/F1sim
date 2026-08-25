@@ -120,6 +120,11 @@ function render(){
   lastPhase = room.phase;
   updateChips();
 
+  if (room.phase !== 'picks_race' && qualiTowerTimer){
+    clearTimeout(qualiTowerTimer);
+    qualiTowerTimer = null;
+  }
+
   var content = document.getElementById('content');
   if (room.phase === 'picks_quali'){
     raceMounted = false;
@@ -280,24 +285,14 @@ function raceTireRowsHtml(slot){
 }
 
 function renderPicksRace(){
-  var results = room.quali_result.results.slice().sort(function(a, b){ return a.grid_position - b.grid_position; });
   var slotById = {};
   room.slots.forEach(function(s){ slotById[s.slot] = s; });
   var slot = mySlot();
   var rw = room.race_weather;
 
   var html = '<div class="panel" style="margin-bottom:16px;">' +
-    '<div class="panel-head"><span>Qualifying results</span><span class="count">' + results.length + ' drivers</span></div>' +
-    '<div style="overflow-x:auto;"><table class="quali-table"><thead><tr><th>Pos</th><th>Driver</th><th>Tire</th><th>Time</th><th>Note</th></tr></thead><tbody>';
-  results.forEach(function(r){
-    var s = slotById[r.driver_id];
-    html += '<tr><td>' + r.grid_position + '</td>' +
-      '<td><span class="swatch" style="background:' + s.color_hex + ';display:inline-block;margin-right:8px;vertical-align:middle;"></span>' + escapeHtml(s.name) + '</td>' +
-      '<td><span class="tire-chip tire-' + r.compound + '">' + r.compound + '</span></td>' +
-      '<td class="time">' + r.time.toFixed(3) + 's</td>' +
-      '<td>' + (r.mistake ? '<span class="mistake-tag">Mistake</span>' : '') + '</td></tr>';
-  });
-  html += '</tbody></table></div></div>';
+    '<div class="panel-head"><span>Qualifying results</span><span class="count" id="room-quali-status"></span></div>' +
+    '<ol class="leaderboard quali-live" id="room-quali-list"></ol></div>';
 
   html += circuitRevealHtml(room.circuit);
   html += '<div class="weather-reveal"><div class="track-state ' + rw.track_state + '">' + rw.track_state.toUpperCase() + '</div>' +
@@ -360,6 +355,100 @@ function wirePicksRace(){
   }
   var startBtn = document.getElementById('start-race-btn');
   if (startBtn) startBtn.addEventListener('click', function(){ send({ type: 'start_race' }); });
+
+  ensureQualiTowerRunning();
+}
+
+// ---------------------------------------------------------------------
+// Live qualifying timing tower (picks_race phase)
+//
+// The server already computed the final qualifying result by the time we
+// see it, but the room re-renders this whole phase's DOM on every
+// websocket message (any other driver nudging a slider included), so the
+// reveal-by-timer state has to live outside the DOM in module vars --
+// otherwise every unrelated update would restart or freeze the animation.
+// Each render just repaints the tower from whatever qualiTowerRevealed
+// currently holds; the timer (started once per new quali_result) keeps
+// advancing it and repainting directly, independent of full re-renders.
+// ---------------------------------------------------------------------
+
+var qualiTowerKey = null;
+var qualiTowerOrder = [];
+var qualiTowerRevealed = [];
+var qualiTowerTimer = null;
+
+function paintQualiTower(){
+  var listEl = document.getElementById('room-quali-list');
+  var statusEl = document.getElementById('room-quali-status');
+  if (!listEl || !statusEl) return;
+  var slotById = {};
+  room.slots.forEach(function(s){ slotById[s.slot] = s; });
+  var total = room.quali_result.results.length;
+
+  var sorted = qualiTowerRevealed.slice().sort(function(a,b){ return a.time - b.time; });
+  var leaderTime = sorted.length ? sorted[0].time : null;
+  var html = '';
+  sorted.forEach(function(r, idx){
+    var s = slotById[r.driver_id];
+    var gapHtml = idx === 0
+      ? '<span class="lb-gap leader">P1</span>'
+      : '<span class="lb-gap">+' + (r.time - leaderTime).toFixed(3) + 's</span>';
+    var rowClass = 'lb-row' + (r._justSet ? ' just-set' : '');
+    html += '<li class="' + rowClass + '">' +
+      '<span class="lb-pos">' + (idx + 1) + '</span>' +
+      '<span class="swatch" style="background:' + s.color_hex + '"></span>' +
+      '<span class="lb-name">' + escapeHtml(s.name) + '</span>' +
+      '<span class="tire-chip tire-' + r.compound + '">' + r.compound + '</span>' +
+      (r.mistake ? '<span class="mistake-flag">MISTAKE</span>' : '<span></span>') +
+      gapHtml +
+      '</li>';
+  });
+  qualiTowerOrder.forEach(function(r){
+    if (qualiTowerRevealed.indexOf(r) !== -1) return;
+    var s = slotById[r.driver_id];
+    html += '<li class="lb-row pending">' +
+      '<span class="lb-pos">&mdash;</span>' +
+      '<span class="swatch" style="background:' + s.color_hex + '"></span>' +
+      '<span class="lb-name">' + escapeHtml(s.name) + '</span>' +
+      '<span></span><span></span>' +
+      '<span class="on-track">On track</span>' +
+      '</li>';
+  });
+  listEl.innerHTML = html;
+  statusEl.innerHTML = qualiTowerRevealed.length < total
+    ? '<span class="live-dot"></span>LIVE &middot; ' + qualiTowerRevealed.length + ' / ' + total + ' set'
+    : 'SESSION COMPLETE &middot; ' + total + ' drivers';
+}
+
+function ensureQualiTowerRunning(){
+  var key = room.quali_result.results.map(function(r){ return r.driver_id + ':' + r.time; }).join('|');
+  if (key !== qualiTowerKey){
+    if (qualiTowerTimer){ clearTimeout(qualiTowerTimer); qualiTowerTimer = null; }
+    qualiTowerKey = key;
+    qualiTowerOrder = room.quali_result.results.slice();
+    for (var i = qualiTowerOrder.length - 1; i > 0; i--){
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = qualiTowerOrder[i]; qualiTowerOrder[i] = qualiTowerOrder[j]; qualiTowerOrder[j] = tmp;
+    }
+    qualiTowerRevealed = [];
+  }
+  paintQualiTower();
+  if (!qualiTowerTimer && qualiTowerRevealed.length < qualiTowerOrder.length){
+    qualiTowerTimer = setTimeout(revealNextQualiRow, 320 + Math.random() * 260);
+  }
+}
+
+function revealNextQualiRow(){
+  qualiTowerRevealed.forEach(function(r){ r._justSet = false; });
+  var r = qualiTowerOrder[qualiTowerRevealed.length];
+  r._justSet = true;
+  qualiTowerRevealed.push(r);
+  paintQualiTower();
+  if (qualiTowerRevealed.length < qualiTowerOrder.length){
+    qualiTowerTimer = setTimeout(revealNextQualiRow, 320 + Math.random() * 260);
+  } else {
+    qualiTowerTimer = null;
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -371,7 +460,7 @@ function renderRaceShell(){
     '<div class="race-grid">' +
       '<div class="panel">' +
         '<div class="panel-head"><span id="circuit-name-chip">Track</span><span class="count">LAP <span id="lap-now">0</span>/<span id="lap-total">20</span> &middot; <span id="race-weather-chip"></span> &middot; <span id="track-status">racing</span></span></div>' +
-        '<div class="track-wrap"><canvas id="track" width="900" height="520" role="img" aria-label="Animated top-down view of cars racing around the track"></canvas></div>' +
+        '<div class="track-wrap"><canvas id="track" width="1280" height="740" role="img" aria-label="Animated top-down view of cars racing around the track"></canvas></div>' +
         '<div class="controls">' +
           '<button class="play-btn" id="play-btn" aria-label="Play">&#9654;</button>' +
           '<input type="range" class="scrub" id="scrub" min="0" max="1000" value="0" aria-label="Race progress">' +
@@ -413,28 +502,98 @@ var trailHistory = {};
 var laneOffset = {};
 var canvas = null;
 var ctx = null;
+// Set once canvas exists (mountRace); see viz/index.html for the fuller
+// explanation of what this scales.
+var PXSCALE = 1;
 
 function fmtTime(t){ return t == null ? "--" : t.toFixed(1) + "s"; }
 function fmtGap(g){ return g == null ? "--" : "+" + g.toFixed(2) + "s"; }
 
 // Track geometry -- a real closed circuit shape, procedurally generated
-// from the room's rolled circuit.shape (a base ellipse perturbed by
-// cosine harmonics, same formula as engine.py/engine.js). Sampled to a
-// constant-speed (arc-length) lookup; see viz/index.html for the fuller
-// explanation, this is a straight port.
-var DEFAULT_TRACK_SHAPE = { rx: 230, ry: 170, terms: [{k:3,amp:0.09,phase:0.6},{k:5,amp:0.05,phase:2.0}] };
+// from the room's rolled circuit.shape: a base ellipse (rx,ry) and
+// vertices (theta, radial scale, corner roundedness) placed around it,
+// connected with straights and rounded corners -- same config as
+// engine.py/engine.js. See viz/index.html for the fuller explanation,
+// this is a straight port.
+function polarShape(rx, ry, points){
+  return { rx: rx, ry: ry, vertices: points.map(function(p){
+    return { theta: p[0] * Math.PI / 180, radius: p[1], corner: p[2] };
+  }) };
+}
+var DEFAULT_TRACK_SHAPE = polarShape(230, 170, [
+  [0, 1.0, 0.42], [50, 0.8, 0.38], [100, 1.0, 0.42], [150, 0.8, 0.35],
+  [200, 1.0, 0.42], [250, 0.8, 0.38], [300, 1.0, 0.42]
+]);
 var TRACK = null; // built by buildTrackGeometry() once per race mount
 
-function shapeRawPoint(shape, theta){
-  var scale = 1;
-  shape.terms.forEach(function(t){ scale += t.amp * Math.cos(t.k * theta + t.phase); });
-  return { x: shape.rx * scale * Math.cos(theta), y: shape.ry * scale * Math.sin(theta) };
+function shapeVertexPoint(shape, v){
+  return { x: shape.rx * v.radius * Math.cos(v.theta), y: shape.ry * v.radius * Math.sin(v.theta), corner: v.corner };
+}
+
+function buildRoundedPolygonRaw(shape){
+  var verts = shape.vertices.map(function(v){ return shapeVertexPoint(shape, v); });
+  var n = verts.length;
+  var straightSamples = 14, arcSamples = 16;
+
+  function sub(a,b){ return {x:a.x-b.x, y:a.y-b.y}; }
+  function vlen(a){ return Math.sqrt(a.x*a.x+a.y*a.y); }
+  function norm(a){ var l=vlen(a)||1; return {x:a.x/l, y:a.y/l}; }
+  function vdist(a,b){ return vlen(sub(a,b)); }
+
+  var corners = [];
+  for (var i=0;i<n;i++){
+    var prev = verts[(i-1+n)%n], cur = verts[i], next = verts[(i+1)%n];
+    var inDir = norm(sub(cur, prev)), outDir = norm(sub(next, cur));
+    var maxT = 0.5 * Math.min(vdist(cur, prev), vdist(next, cur)) * 0.92;
+    var t = Math.max(0.001, cur.corner * maxT);
+    var cross = inDir.x*outDir.y - inDir.y*outDir.x;
+    var dot = Math.max(-1, Math.min(1, inDir.x*outDir.x + inDir.y*outDir.y));
+    var turn = Math.atan2(cross, dot);
+    var Tin = { x: cur.x - inDir.x*t, y: cur.y - inDir.y*t };
+    var Tout = { x: cur.x + outDir.x*t, y: cur.y + outDir.y*t };
+    var absTurn = Math.abs(turn);
+    var c = { Tin: Tin, Tout: Tout, r: 0 };
+    if (absTurn >= 1e-4){
+      var r = t / Math.tan(absTurn/2);
+      var sign = turn > 0 ? 1 : -1;
+      var nIn = sign > 0 ? {x:-inDir.y, y:inDir.x} : {x:inDir.y, y:-inDir.x};
+      var center = { x: Tin.x + nIn.x*r, y: Tin.y + nIn.y*r };
+      c.r = r; c.center = center; c.sweepCCW = sign > 0;
+      c.aStart = Math.atan2(Tin.y-center.y, Tin.x-center.x);
+      c.aEnd = Math.atan2(Tout.y-center.y, Tout.x-center.x);
+    } else {
+      c.cur = cur;
+    }
+    corners.push(c);
+  }
+
+  var raw = [];
+  for (var i=0;i<n;i++){
+    var c = corners[i], prevC = corners[(i-1+n)%n];
+    var a = prevC.Tout, b = c.Tin;
+    for (var s=0; s<straightSamples; s++){
+      var f = s/straightSamples;
+      raw.push({ x: a.x+(b.x-a.x)*f, y: a.y+(b.y-a.y)*f });
+    }
+    if (c.r > 0){
+      var a0 = c.aStart, a1 = c.aEnd;
+      if (c.sweepCCW){ while (a1 < a0) a1 += Math.PI*2; }
+      else { while (a1 > a0) a1 -= Math.PI*2; }
+      for (var k=0;k<=arcSamples;k++){
+        var ang = a0 + (a1-a0)*k/arcSamples;
+        raw.push({ x: c.center.x + c.r*Math.cos(ang), y: c.center.y + c.r*Math.sin(ang) });
+      }
+    } else {
+      raw.push(c.cur);
+    }
+  }
+  raw.push(raw[0]);
+  return raw;
 }
 
 function buildTrackGeometry(shape){
-  var N = 720;
-  var raw = [];
-  for (var i = 0; i <= N; i++) raw.push(shapeRawPoint(shape, (i / N) * Math.PI * 2));
+  var raw = buildRoundedPolygonRaw(shape);
+  var N = raw.length - 1;
 
   var minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
   raw.forEach(function(p){
@@ -442,8 +601,8 @@ function buildTrackGeometry(shape){
     if (p.y<minY) minY=p.y; if (p.y>maxY) maxY=p.y;
   });
 
-  var band = 40;
-  var margin = 56;
+  var band = 40 * PXSCALE;
+  var margin = 56 * PXSCALE;
   var availW = canvas.width - margin*2, availH = canvas.height - margin*2;
   var scale = Math.min(availW / (maxX-minX), availH / (maxY-minY));
   var cx = canvas.width/2 - ((minX+maxX)/2) * scale;
@@ -528,7 +687,7 @@ function drawTrack(){
   ctx.fill('evenodd');
 
   ctx.strokeStyle = trackLine;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2 * PXSCALE;
   pathThroughPoints(outerPts); ctx.stroke();
   pathThroughPoints(innerPts); ctx.stroke();
 
@@ -538,7 +697,7 @@ function drawTrack(){
   ctx.save();
   ctx.translate(sf.x, sf.y);
   ctx.rotate(sf.angle);
-  var stripDepth = 6, rows = 2, cols = 6;
+  var stripDepth = 6 * PXSCALE, rows = 2, cols = 6;
   var cellW = stripDepth/cols, cellH = TRACK.band/rows;
   for (var row=0; row<rows; row++){
     for (var col=0; col<cols; col++){
@@ -584,8 +743,8 @@ function drawCurbs(half){
     for (var k=0;k<n;k++){
       var ga = run.start + (count*k)/n, gb = run.start + (count*(k+1))/n;
       var fa = ((minIdx+ga) % M) / M, fb = ((minIdx+gb) % M) / M;
-      var pa1 = trackPoint(fa, half+0.5), pa2 = trackPoint(fa, half+7);
-      var pb1 = trackPoint(fb, half+0.5), pb2 = trackPoint(fb, half+7);
+      var pa1 = trackPoint(fa, half+0.5*PXSCALE), pa2 = trackPoint(fa, half+7*PXSCALE);
+      var pb1 = trackPoint(fb, half+0.5*PXSCALE), pb2 = trackPoint(fb, half+7*PXSCALE);
       ctx.beginPath();
       ctx.moveTo(pa1.x,pa1.y); ctx.lineTo(pa2.x,pa2.y); ctx.lineTo(pb2.x,pb2.y); ctx.lineTo(pb1.x,pb1.y);
       ctx.closePath();
@@ -676,7 +835,7 @@ function renderCars(t){
         var a = (i+1)/hist.length * 0.28;
         ctx.beginPath();
         ctx.fillStyle = hexWithAlpha(driver.color_hex, a);
-        ctx.arc(hist[i].x, hist[i].y, 3.2, 0, Math.PI*2);
+        ctx.arc(hist[i].x, hist[i].y, 3.2*PXSCALE, 0, Math.PI*2);
         ctx.fill();
       }
     }
@@ -685,10 +844,10 @@ function renderCars(t){
 
     if (s.status==='dnf'){
       ctx.strokeStyle = '#ef4b4b';
-      ctx.lineWidth = 1.4;
+      ctx.lineWidth = 1.4 * PXSCALE;
       ctx.beginPath();
-      ctx.moveTo(p.x-4,p.y-11); ctx.lineTo(p.x+4,p.y-3);
-      ctx.moveTo(p.x-4,p.y-3); ctx.lineTo(p.x+4,p.y-11);
+      ctx.moveTo(p.x-4*PXSCALE,p.y-11*PXSCALE); ctx.lineTo(p.x+4*PXSCALE,p.y-3*PXSCALE);
+      ctx.moveTo(p.x-4*PXSCALE,p.y-3*PXSCALE); ctx.lineTo(p.x+4*PXSCALE,p.y-11*PXSCALE);
       ctx.stroke();
     }
   }
@@ -732,7 +891,7 @@ function carBodyPath(L, W){
   ctx.closePath();
 }
 
-var CAR_SCALE = 1.4; // bumped up so cars read clearly at a glance
+var CAR_SCALE = 1.4; // reset relative to PXSCALE in mountRace() once canvas exists
 
 function drawCarSprite(x, y, angle, colorHex, dnf){
   var L = 21, W = 8;
@@ -1009,13 +1168,17 @@ function mountRace(data){
   clock = 0;
   trailHistory = {};
   laneOffset = {};
-  data.drivers.forEach(function(d, i){
-    trailHistory[d.driver_id] = [];
-    laneOffset[d.driver_id] = ((i % 5) - 2) * 6;
-  });
 
   canvas = document.getElementById('track');
   ctx = canvas.getContext('2d');
+  PXSCALE = canvas.width / 900;
+  CAR_SCALE = 1.4 * PXSCALE;
+
+  data.drivers.forEach(function(d, i){
+    trailHistory[d.driver_id] = [];
+    laneOffset[d.driver_id] = ((i % 5) - 2) * 6 * PXSCALE;
+  });
+
   buildTrackGeometry((data.circuit && data.circuit.shape) ? data.circuit.shape : DEFAULT_TRACK_SHAPE);
   setCircuitLabel(data.circuit);
 
@@ -1035,7 +1198,7 @@ function mountRace(data){
   function resizeCanvas(){
     var wrap = canvas.parentElement;
     var w = wrap.clientWidth;
-    canvas.style.height = (w * (520/900)) + 'px';
+    canvas.style.height = (w * (canvas.height/canvas.width)) + 'px';
   }
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();

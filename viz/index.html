@@ -50,7 +50,7 @@
   }
 
   .app{
-    max-width:1400px;
+    max-width:1720px;
     margin:0 auto;
     padding:20px clamp(14px,3vw,28px) 40px;
     display:flex;
@@ -195,12 +195,14 @@
   .lap-counter b{color:var(--accent-strong);font-size:1.05rem;}
 
   /* ---------- Layout: race view ---------- */
+  /* Track is the dominant element; the standings/timing column stays a
+     fixed comfortable-reading width instead of scaling up with it. */
   .race-grid{
     display:grid;
-    grid-template-columns:minmax(0,1.55fr) minmax(280px,1fr);
+    grid-template-columns:minmax(0,1fr) 360px;
     gap:16px;
   }
-  @media (max-width:880px){
+  @media (max-width:980px){
     .race-grid{grid-template-columns:1fr;}
   }
 
@@ -341,6 +343,36 @@
   .lb-gap.leader{color:var(--accent-strong);}
   .lb-gap.out{color:var(--danger);font-family:var(--font-body);font-weight:600;font-size:.72rem;text-transform:uppercase;}
 
+  /* Live qualifying timing tower */
+  .quali-live{max-height:none;}
+  .quali-live .lb-row{grid-template-columns:26px 16px 1fr auto auto auto;}
+  .lb-row.pending{opacity:.4;}
+  .lb-row.pending .lb-pos{color:var(--text-faint);}
+  .on-track{
+    font-family:var(--font-mono);
+    font-size:.72rem;
+    color:var(--text-faint);
+    text-transform:uppercase;
+    letter-spacing:.03em;
+  }
+  .mistake-flag{
+    font-family:var(--font-mono);
+    font-size:.68rem;
+    color:var(--danger);
+    text-transform:uppercase;
+  }
+  @keyframes rowFlash{
+    0%{background:rgba(232,163,61,.35);}
+    100%{background:transparent;}
+  }
+  .lb-row.just-set{animation:rowFlash 1.1s ease-out;}
+  .live-dot{
+    display:inline-block;width:7px;height:7px;border-radius:50%;
+    background:var(--danger);margin-right:6px;
+    animation:liveBlink 1.1s ease-in-out infinite;
+  }
+  @keyframes liveBlink{0%,100%{opacity:1;}50%{opacity:.25;}}
+
   /* Event feed */
   .event-feed{
     list-style:none;margin:0;padding:0;
@@ -401,37 +433,6 @@
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   }
   .draft-slot .pick-name.pending{color:var(--text-faint);font-family:var(--font-mono);font-size:.72rem;}
-
-  /* ---------- Qualifying view ---------- */
-  .quali-table{
-    width:100%;
-    border-collapse:collapse;
-    font-size:.88rem;
-  }
-  .quali-table th{
-    text-align:left;
-    font-family:var(--font-display);
-    text-transform:uppercase;
-    letter-spacing:.05em;
-    font-size:.74rem;
-    color:var(--text-faint);
-    padding:9px 14px;
-    border-bottom:1px solid var(--border);
-    position:sticky;top:0;background:var(--bg-elevated);
-  }
-  .quali-table td{
-    padding:9px 14px;
-    border-bottom:1px solid var(--border-soft);
-    font-variant-numeric:tabular-nums;
-  }
-  .quali-table td.time{font-family:var(--font-mono);}
-  .quali-table tr:hover td{background:var(--surface);}
-  .mistake-tag{
-    color:var(--danger);
-    font-family:var(--font-mono);
-    font-size:.72rem;
-    text-transform:uppercase;
-  }
 
   footer.credit{
     text-align:center;
@@ -713,7 +714,7 @@
       <div class="panel">
         <div class="panel-head"><span>Track</span><span class="count" id="track-status">racing</span></div>
         <div class="track-wrap">
-          <canvas id="track" width="900" height="520" role="img" aria-label="Animated top-down view of cars racing around the track"></canvas>
+          <canvas id="track" width="1280" height="740" role="img" aria-label="Animated top-down view of cars racing around the track"></canvas>
         </div>
         <div class="controls">
           <button class="play-btn" id="play-btn" aria-label="Play">&#9654;</button>
@@ -749,13 +750,8 @@
 
   <section id="view-quali" style="display:none;">
     <div class="panel">
-      <div class="panel-head"><span>Qualifying &mdash; single flying lap</span><span class="count" id="quali-count"></span></div>
-      <div style="overflow-x:auto;">
-        <table class="quali-table">
-          <thead><tr><th>Pos</th><th>Driver</th><th>Tire</th><th>Time</th><th>Note</th></tr></thead>
-          <tbody id="quali-body"></tbody>
-        </table>
-      </div>
+      <div class="panel-head"><span>Qualifying &mdash; single flying lap</span><span class="count" id="quali-status"></span></div>
+      <ol class="leaderboard quali-live" id="quali-live-list"></ol>
     </div>
   </section>
 
@@ -783,6 +779,11 @@ var laneOffset = {};   // driver_id -> stable perpendicular offset (px), so clos
 
 var canvas = document.getElementById('track');
 var ctx = canvas.getContext('2d');
+// The canvas' internal pixel buffer is bigger than the original 900px
+// design size (drawn crisp at that resolution, then CSS-scaled to fit the
+// panel); PXSCALE lets every hardcoded canvas-pixel constant below scale
+// with it instead of looking undersized/thin at the larger buffer.
+var PXSCALE = canvas.width / 900;
 
 function fmtTime(t){
   if (t == null) return "--";
@@ -832,7 +833,7 @@ function loadRace(data, sourceLabel){
   laneOffset = {};
   data.drivers.forEach(function(d, i){
     trailHistory[d.driver_id] = [];
-    laneOffset[d.driver_id] = ((i % 5) - 2) * 6;
+    laneOffset[d.driver_id] = ((i % 5) - 2) * 6 * PXSCALE;
   });
 
   buildTrackGeometry((data.circuit && data.circuit.shape) ? data.circuit.shape : DEFAULT_TRACK_SHAPE);
@@ -842,7 +843,7 @@ function loadRace(data, sourceLabel){
   document.getElementById('chip-source').textContent = sourceLabel;
   document.getElementById('lap-total').textContent = data.num_laps;
 
-  buildQualiTable();
+  startQualiLiveSession();
   buildDraftBoardShell();
   renderFrame(true);
 }
@@ -874,28 +875,98 @@ function weatherAt(t){
 
 // ---------------------------------------------------------------------
 // Track geometry -- a real closed circuit shape, procedurally generated
-// from the rolled circuit's `shape` (a base ellipse perturbed by cosine
-// harmonics: r(theta) = 1 + sum(amp*cos(k*theta+phase)), same formula as
-// engine.py/engine.js so what's drawn matches what was actually rolled).
-// Sampled to a constant-speed (arc-length) lookup so trackPoint(f)
-// behaves like a normal parametric track: f in [0,1) around the lap,
-// angle = direction of travel, with an optional constant-pixel radial
-// offset for drawing the track band / curbs / boundary lines.
+// from the rolled circuit's `shape`: a base ellipse (rx,ry) and vertices
+// (theta, radial scale, corner roundedness) placed around it at strictly
+// increasing theta (same config as engine.py/engine.js, so what's drawn
+// matches what was actually rolled). The vertices are connected with
+// straight lines and each corner is rounded with a circular fillet --
+// the same straight-plus-corner vocabulary a real circuit blueprint is
+// drawn with -- then the whole loop is sampled to a constant-speed
+// (arc-length) lookup so trackPoint(f) behaves like a normal parametric
+// track: f in [0,1) around the lap, angle = direction of travel, with an
+// optional constant-pixel radial offset for drawing the track band /
+// curbs / start-finish strip.
 // ---------------------------------------------------------------------
 
-var DEFAULT_TRACK_SHAPE = { rx: 230, ry: 170, terms: [{k:3,amp:0.09,phase:0.6},{k:5,amp:0.05,phase:2.0}] };
+var DEFAULT_TRACK_SHAPE = polarShape(230, 170, [
+  [0, 1.0, 0.42], [50, 0.8, 0.38], [100, 1.0, 0.42], [150, 0.8, 0.35],
+  [200, 1.0, 0.42], [250, 0.8, 0.38], [300, 1.0, 0.42]
+]);
 var TRACK = null; // built by buildTrackGeometry() once per race load
 
-function shapeRawPoint(shape, theta){
-  var scale = 1;
-  shape.terms.forEach(function(t){ scale += t.amp * Math.cos(t.k * theta + t.phase); });
-  return { x: shape.rx * scale * Math.cos(theta), y: shape.ry * scale * Math.sin(theta) };
+function shapeVertexPoint(shape, v){
+  return { x: shape.rx * v.radius * Math.cos(v.theta), y: shape.ry * v.radius * Math.sin(v.theta), corner: v.corner };
+}
+
+// Walk the rounded polygon (straight segment, then arc, per vertex) and
+// return a dense list of raw (pre-scale) points forming the closed loop.
+// Each corner's fillet radius is derived from a tangent length (`corner`
+// as a fraction of the max length either adjacent edge allows), so corners
+// self-clamp to the local geometry instead of needing hand-tuned radii.
+function buildRoundedPolygonRaw(shape){
+  var verts = shape.vertices.map(function(v){ return shapeVertexPoint(shape, v); });
+  var n = verts.length;
+  var straightSamples = 14, arcSamples = 16;
+
+  function sub(a,b){ return {x:a.x-b.x, y:a.y-b.y}; }
+  function vlen(a){ return Math.sqrt(a.x*a.x+a.y*a.y); }
+  function norm(a){ var l=vlen(a)||1; return {x:a.x/l, y:a.y/l}; }
+  function vdist(a,b){ return vlen(sub(a,b)); }
+
+  var corners = [];
+  for (var i=0;i<n;i++){
+    var prev = verts[(i-1+n)%n], cur = verts[i], next = verts[(i+1)%n];
+    var inDir = norm(sub(cur, prev)), outDir = norm(sub(next, cur));
+    var maxT = 0.5 * Math.min(vdist(cur, prev), vdist(next, cur)) * 0.92;
+    var t = Math.max(0.001, cur.corner * maxT);
+    var cross = inDir.x*outDir.y - inDir.y*outDir.x;
+    var dot = Math.max(-1, Math.min(1, inDir.x*outDir.x + inDir.y*outDir.y));
+    var turn = Math.atan2(cross, dot);
+    var Tin = { x: cur.x - inDir.x*t, y: cur.y - inDir.y*t };
+    var Tout = { x: cur.x + outDir.x*t, y: cur.y + outDir.y*t };
+    var absTurn = Math.abs(turn);
+    var c = { Tin: Tin, Tout: Tout, r: 0 };
+    if (absTurn >= 1e-4){
+      var r = t / Math.tan(absTurn/2);
+      var sign = turn > 0 ? 1 : -1;
+      var nIn = sign > 0 ? {x:-inDir.y, y:inDir.x} : {x:inDir.y, y:-inDir.x};
+      var center = { x: Tin.x + nIn.x*r, y: Tin.y + nIn.y*r };
+      c.r = r; c.center = center; c.sweepCCW = sign > 0;
+      c.aStart = Math.atan2(Tin.y-center.y, Tin.x-center.x);
+      c.aEnd = Math.atan2(Tout.y-center.y, Tout.x-center.x);
+    } else {
+      c.cur = cur;
+    }
+    corners.push(c);
+  }
+
+  var raw = [];
+  for (var i=0;i<n;i++){
+    var c = corners[i], prevC = corners[(i-1+n)%n];
+    var a = prevC.Tout, b = c.Tin;
+    for (var s=0; s<straightSamples; s++){
+      var f = s/straightSamples;
+      raw.push({ x: a.x+(b.x-a.x)*f, y: a.y+(b.y-a.y)*f });
+    }
+    if (c.r > 0){
+      var a0 = c.aStart, a1 = c.aEnd;
+      if (c.sweepCCW){ while (a1 < a0) a1 += Math.PI*2; }
+      else { while (a1 > a0) a1 -= Math.PI*2; }
+      for (var k=0;k<=arcSamples;k++){
+        var ang = a0 + (a1-a0)*k/arcSamples;
+        raw.push({ x: c.center.x + c.r*Math.cos(ang), y: c.center.y + c.r*Math.sin(ang) });
+      }
+    } else {
+      raw.push(c.cur);
+    }
+  }
+  raw.push(raw[0]);
+  return raw;
 }
 
 function buildTrackGeometry(shape){
-  var N = 720;
-  var raw = [];
-  for (var i = 0; i <= N; i++) raw.push(shapeRawPoint(shape, (i / N) * Math.PI * 2));
+  var raw = buildRoundedPolygonRaw(shape);
+  var N = raw.length - 1;
 
   var minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
   raw.forEach(function(p){
@@ -903,8 +974,8 @@ function buildTrackGeometry(shape){
     if (p.y<minY) minY=p.y; if (p.y>maxY) maxY=p.y;
   });
 
-  var band = 40; // track ribbon width, constant canvas px regardless of track scale
-  var margin = 56;
+  var band = 40 * PXSCALE; // track ribbon width, constant canvas px regardless of track scale
+  var margin = 56 * PXSCALE;
   var availW = canvas.width - margin*2, availH = canvas.height - margin*2;
   var scale = Math.min(availW / (maxX-minX), availH / (maxY-minY));
   var cx = canvas.width/2 - ((minX+maxX)/2) * scale;
@@ -1001,7 +1072,7 @@ function drawTrack(){
   ctx.fill('evenodd');
 
   ctx.strokeStyle = trackLine;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2 * PXSCALE;
   pathThroughPoints(outerPts); ctx.stroke();
   pathThroughPoints(innerPts); ctx.stroke();
 
@@ -1012,7 +1083,7 @@ function drawTrack(){
   ctx.save();
   ctx.translate(sf.x, sf.y);
   ctx.rotate(sf.angle);
-  var stripDepth = 6, rows = 2, cols = 6;
+  var stripDepth = 6 * PXSCALE, rows = 2, cols = 6;
   var cellW = stripDepth/cols, cellH = TRACK.band/rows;
   for (var row=0; row<rows; row++){
     for (var col=0; col<cols; col++){
@@ -1059,8 +1130,8 @@ function drawCurbs(half){
     for (var k=0;k<n;k++){
       var ga = run.start + (count*k)/n, gb = run.start + (count*(k+1))/n;
       var fa = ((minIdx+ga) % M) / M, fb = ((minIdx+gb) % M) / M;
-      var pa1 = trackPoint(fa, half+0.5), pa2 = trackPoint(fa, half+7);
-      var pb1 = trackPoint(fb, half+0.5), pb2 = trackPoint(fb, half+7);
+      var pa1 = trackPoint(fa, half+0.5*PXSCALE), pa2 = trackPoint(fa, half+7*PXSCALE);
+      var pb1 = trackPoint(fb, half+0.5*PXSCALE), pb2 = trackPoint(fb, half+7*PXSCALE);
       ctx.beginPath();
       ctx.moveTo(pa1.x,pa1.y); ctx.lineTo(pa2.x,pa2.y); ctx.lineTo(pb2.x,pb2.y); ctx.lineTo(pb1.x,pb1.y);
       ctx.closePath();
@@ -1161,7 +1232,7 @@ function renderCars(t){
         var a = (i+1)/hist.length * 0.28;
         ctx.beginPath();
         ctx.fillStyle = hexWithAlpha(driver.color_hex, a);
-        ctx.arc(hist[i].x, hist[i].y, 3.2, 0, Math.PI*2);
+        ctx.arc(hist[i].x, hist[i].y, 3.2*PXSCALE, 0, Math.PI*2);
         ctx.fill();
       }
     }
@@ -1170,10 +1241,10 @@ function renderCars(t){
 
     if (s.status==='dnf'){
       ctx.strokeStyle = '#ef4b4b';
-      ctx.lineWidth = 1.4;
+      ctx.lineWidth = 1.4 * PXSCALE;
       ctx.beginPath();
-      ctx.moveTo(p.x-4,p.y-11); ctx.lineTo(p.x+4,p.y-3);
-      ctx.moveTo(p.x-4,p.y-3); ctx.lineTo(p.x+4,p.y-11);
+      ctx.moveTo(p.x-4*PXSCALE,p.y-11*PXSCALE); ctx.lineTo(p.x+4*PXSCALE,p.y-3*PXSCALE);
+      ctx.moveTo(p.x-4*PXSCALE,p.y-3*PXSCALE); ctx.lineTo(p.x+4*PXSCALE,p.y-11*PXSCALE);
       ctx.stroke();
     }
   }
@@ -1222,7 +1293,7 @@ function carBodyPath(L, W){
   ctx.closePath();
 }
 
-var CAR_SCALE = 1.4; // bumped up so cars read clearly at a glance
+var CAR_SCALE = 1.4 * PXSCALE; // bumped up so cars read clearly at a glance
 
 function drawCarSprite(x, y, angle, colorHex, dnf){
   var L = 21, W = 8;
@@ -1429,21 +1500,79 @@ function updateDraftBoard(t){
   });
 }
 
-function buildQualiTable(){
-  var results = raceData.qualifying.results.slice().sort(function(a,b){ return a.grid_position - b.grid_position; });
-  var html = '';
-  results.forEach(function(r){
-    var driver = driversById[r.driver_id];
-    html += '<tr>' +
-      '<td>'+r.grid_position+'</td>' +
-      '<td><span class="swatch" style="background:'+driver.color_hex+';display:inline-block;margin-right:8px;vertical-align:middle;"></span>'+escapeHtml(driver.name)+'</td>' +
-      '<td><span class="tire-chip tire-'+r.compound+'">'+r.compound+'</span></td>' +
-      '<td class="time">'+r.time.toFixed(3)+'s</td>' +
-      '<td>'+(r.mistake ? '<span class="mistake-tag">Mistake</span>' : '')+'</td>' +
-      '</tr>';
-  });
-  document.getElementById('quali-body').innerHTML = html;
-  document.getElementById('quali-count').textContent = results.length + ' drivers';
+var qualiLiveTimer = null;
+
+// Animate the qualifying session as a live-building timing tower instead of
+// dumping the final grid all at once: drivers "cross the line" one at a
+// time in a shuffled order (not by finishing speed, so the provisional
+// leader genuinely changes) and the list re-sorts live until every car
+// has set a time -- the same shape a real quali broadcast's timing
+// tower has.
+function startQualiLiveSession(){
+  if (qualiLiveTimer){ clearTimeout(qualiLiveTimer); qualiLiveTimer = null; }
+  var results = raceData.qualifying.results;
+  var revealOrder = results.slice();
+  for (var i = revealOrder.length - 1; i > 0; i--){
+    var j = Math.floor(Math.random() * (i + 1));
+    var tmp = revealOrder[i]; revealOrder[i] = revealOrder[j]; revealOrder[j] = tmp;
+  }
+  var pendingIds = results.map(function(r){ return r.driver_id; });
+  var revealed = [];
+
+  function renderTick(){
+    var sorted = revealed.slice().sort(function(a,b){ return a.time - b.time; });
+    var leaderTime = sorted.length ? sorted[0].time : null;
+    var html = '';
+    sorted.forEach(function(r, idx){
+      var driver = driversById[r.driver_id];
+      var gapHtml = idx === 0
+        ? '<span class="lb-gap leader">P1</span>'
+        : '<span class="lb-gap">+'+(r.time-leaderTime).toFixed(3)+'s</span>';
+      var rowClass = 'lb-row' + (r._justSet ? ' just-set' : '');
+      html += '<li class="'+rowClass+'">' +
+        '<span class="lb-pos">'+(idx+1)+'</span>' +
+        '<span class="swatch" style="background:'+driver.color_hex+'"></span>' +
+        '<span class="lb-name">'+escapeHtml(driver.name)+'</span>' +
+        '<span class="tire-chip tire-'+r.compound+'">'+r.compound+'</span>' +
+        (r.mistake ? '<span class="mistake-flag">MISTAKE</span>' : '<span></span>') +
+        gapHtml +
+        '</li>';
+    });
+    pendingIds.forEach(function(id){
+      var driver = driversById[id];
+      html += '<li class="lb-row pending">' +
+        '<span class="lb-pos">&mdash;</span>' +
+        '<span class="swatch" style="background:'+driver.color_hex+'"></span>' +
+        '<span class="lb-name">'+escapeHtml(driver.name)+'</span>' +
+        '<span></span><span></span>' +
+        '<span class="on-track">On track</span>' +
+        '</li>';
+    });
+    document.getElementById('quali-live-list').innerHTML = html;
+    var statusEl = document.getElementById('quali-status');
+    if (pendingIds.length){
+      statusEl.innerHTML = '<span class="live-dot"></span>LIVE &middot; ' + revealed.length + ' / ' + results.length + ' set';
+    } else {
+      statusEl.textContent = 'SESSION COMPLETE · ' + results.length + ' drivers';
+    }
+  }
+
+  renderTick();
+
+  function revealNext(){
+    revealed.forEach(function(r){ r._justSet = false; });
+    var r = revealOrder.shift();
+    r._justSet = true;
+    revealed.push(r);
+    pendingIds.splice(pendingIds.indexOf(r.driver_id), 1);
+    renderTick();
+    if (revealOrder.length){
+      qualiLiveTimer = setTimeout(revealNext, 320 + Math.random()*260);
+    } else {
+      qualiLiveTimer = null;
+    }
+  }
+  qualiLiveTimer = setTimeout(revealNext, 320 + Math.random()*260);
 }
 
 function escapeHtml(s){
@@ -1496,29 +1625,53 @@ var TRACK_STATES = ['Dry', 'Damp', 'Wet'];
 var TEMPS = ['Cold', 'Mild', 'Hot'];
 
 // Circuit layouts -- kept in exact sync with engine.py's CIRCUITS. `shape`
-// drives the renderer (a base ellipse perturbed by cosine harmonics); the
-// rest are gameplay attributes giving each circuit real strategic identity.
+// drives the renderer: a base ellipse (rx,ry) and vertices (theta radians,
+// radial scale, corner roundedness 0-1) placed at strictly increasing theta
+// -- the renderer connects them with straights and rounds each corner with
+// a fillet, the same vocabulary a real circuit blueprint is drawn with.
+function polarShape(rx, ry, points){
+  return { rx: rx, ry: ry, vertices: points.map(function(p){
+    return { theta: p[0] * Math.PI / 180, radius: p[1], corner: p[2] };
+  }) };
+}
 var CIRCUITS = [
   { id: 'sable-bay', name: 'Sable Bay Circuit',
     description: 'Long straights and sweeping bends -- low deg, easy to pass, punishing at speed.',
     deg_multiplier: 0.85, overtake_difficulty: 0.65, crash_rate_multiplier: 1.1, pit_loss_bonus: 0.0,
-    shape: { rx: 260, ry: 150, terms: [{k:2,amp:0.10,phase:0.3},{k:3,amp:0.06,phase:1.8}] } },
+    shape: polarShape(270, 160, [
+      [0, 1.0, 0.45], [70, 0.85, 0.4], [150, 1.05, 0.45], [220, 0.75, 0.4], [300, 0.95, 0.45]
+    ]) },
   { id: 'verdant-ridge', name: 'Verdant Ridge Hillclimb',
     description: 'Constant direction changes -- technical, hard on tires, very hard to pass.',
     deg_multiplier: 1.25, overtake_difficulty: 1.3, crash_rate_multiplier: 1.0, pit_loss_bonus: 0.2,
-    shape: { rx: 190, ry: 160, terms: [{k:5,amp:0.14,phase:0.4},{k:7,amp:0.08,phase:2.1},{k:2,amp:0.05,phase:1.0}] } },
+    shape: polarShape(200, 170, [
+      [0, 1.0, 0.22], [36, 0.68, 0.15], [72, 0.98, 0.28], [108, 0.62, 0.15],
+      [144, 1.0, 0.3], [180, 0.7, 0.18], [216, 0.92, 0.25], [252, 0.6, 0.15],
+      [288, 0.98, 0.3], [324, 0.75, 0.2]
+    ]) },
   { id: 'iron-harbor', name: 'Iron Harbor Street Circuit',
     description: 'Tight street course, walls close in -- brutal on mistakes, brutal to overtake.',
     deg_multiplier: 1.0, overtake_difficulty: 1.6, crash_rate_multiplier: 1.5, pit_loss_bonus: 0.4,
-    shape: { rx: 150, ry: 120, terms: [{k:4,amp:0.16,phase:0.9},{k:6,amp:0.10,phase:2.5}] } },
+    shape: polarShape(200, 120, [
+      [10, 1.0, 0.12], [40, 0.9, 0.1], [70, 1.0, 0.12], [100, 0.82, 0.1],
+      [130, 1.0, 0.12], [160, 0.88, 0.1], [190, 1.0, 0.12], [220, 0.8, 0.1],
+      [250, 1.0, 0.12], [280, 0.88, 0.1], [310, 1.0, 0.12], [340, 0.85, 0.1]
+    ]) },
   { id: 'sunspire', name: 'Sunspire Speedway',
     description: 'Elongated high-speed bowl with a couple of chicanes -- fast, tires take a beating.',
     deg_multiplier: 1.1, overtake_difficulty: 0.75, crash_rate_multiplier: 1.05, pit_loss_bonus: 0.0,
-    shape: { rx: 280, ry: 110, terms: [{k:2,amp:0.06,phase:0.0},{k:8,amp:0.03,phase:1.2}] } },
+    shape: polarShape(270, 150, [
+      [0, 1.0, 0.65], [15, 0.88, 0.18], [30, 1.0, 0.65], [90, 0.55, 0.55], [150, 1.0, 0.65],
+      [165, 1.0, 0.65], [180, 0.88, 0.18], [195, 1.0, 0.65], [210, 1.0, 0.65],
+      [270, 0.55, 0.55], [330, 1.0, 0.65], [345, 1.0, 0.65]
+    ]) },
   { id: 'northgate', name: 'Northgate Endurance Circuit',
     description: 'A balanced, flowing all-rounder -- no extreme strengths or weaknesses.',
     deg_multiplier: 1.0, overtake_difficulty: 1.0, crash_rate_multiplier: 1.0, pit_loss_bonus: 0.1,
-    shape: { rx: 230, ry: 170, terms: [{k:3,amp:0.09,phase:0.6},{k:5,amp:0.05,phase:2.0}] } }
+    shape: polarShape(230, 170, [
+      [0, 1.0, 0.42], [50, 0.8, 0.38], [100, 1.0, 0.42], [150, 0.8, 0.35],
+      [200, 1.0, 0.42], [250, 0.8, 0.38], [300, 1.0, 0.42]
+    ]) }
 ];
 function rollCircuit(rng){ return CIRCUITS[Math.floor(rng.random() * CIRCUITS.length)]; }
 var TRAFFIC_DNF_REASONS = ['Collision', 'Spin', 'Loss of control', 'Mechanical failure'];
@@ -2131,7 +2284,7 @@ function runWizardSimulation(){
 function resizeCanvas(){
   var wrap = canvas.parentElement;
   var w = wrap.clientWidth;
-  canvas.style.height = (w * (520/900)) + 'px';
+  canvas.style.height = (w * (canvas.height/canvas.width)) + 'px';
 }
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
