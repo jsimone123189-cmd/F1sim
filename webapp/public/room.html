@@ -455,15 +455,47 @@ function drawTrack(){
     ctx.stroke();
   });
 
+  drawCurbs(band);
+
   var sf = trackPoint(0);
   ctx.save();
   ctx.translate(sf.x, sf.y);
   ctx.rotate(sf.angle);
-  ctx.fillStyle = '#e8ecf0';
-  for (var seg=-1; seg<=1; seg+=2){
-    ctx.fillRect(-2, seg*(band/2)/2 - 4, 4, 8);
+  var stripDepth = 6, rows = 2, cols = 6;
+  var cellW = stripDepth/cols, cellH = band/rows;
+  for (var row=0; row<rows; row++){
+    for (var col=0; col<cols; col++){
+      ctx.fillStyle = ((row+col)%2===0) ? '#e8ecf0' : '#1a1f27';
+      ctx.fillRect(-stripDepth/2 + col*cellW, -band/2 + row*cellH, cellW, cellH);
+    }
   }
   ctx.restore();
+}
+
+// Alternating red/white kerb blocks along the outer edge of both corners
+// (the semicircle sections of the stadium loop), like real track kerbing.
+function drawCurbs(band){
+  var outerR = TRACK.r + band/2;
+  var straight = TRACK.halfLen * 2;
+  var arc = Math.PI * TRACK.r;
+  var total = 2*straight + 2*arc;
+  var ranges = [
+    [straight/total, (straight+arc)/total],
+    [(2*straight+arc)/total, 1]
+  ];
+  ranges.forEach(function(range){
+    var f0 = range[0], f1 = range[1], n = 26;
+    for (var i=0;i<n;i++){
+      var fa = f0 + (f1-f0)*i/n, fb = f0 + (f1-f0)*(i+1)/n;
+      var pa1 = trackPointAtRadius(fa, outerR+0.5), pa2 = trackPointAtRadius(fa, outerR+5);
+      var pb1 = trackPointAtRadius(fb, outerR+0.5), pb2 = trackPointAtRadius(fb, outerR+5);
+      ctx.beginPath();
+      ctx.moveTo(pa1.x,pa1.y); ctx.lineTo(pa2.x,pa2.y); ctx.lineTo(pb2.x,pb2.y); ctx.lineTo(pb1.x,pb1.y);
+      ctx.closePath();
+      ctx.fillStyle = (i%2===0) ? '#c0392b' : '#e8ecf0';
+      ctx.fill();
+    }
+  });
 }
 
 function trackPointAtRadius(f, rOverride){
@@ -595,37 +627,87 @@ function roundRectPath(x, y, w, h, r){
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
 }
+function carBodyPath(L, W){
+  var noseX = L/2, tailX = -L/2;
+  var shoulderX = L*0.12;
+  var cockpitHW = W*0.5, tailHW = W*0.30;
+  ctx.beginPath();
+  ctx.moveTo(noseX, 0);
+  ctx.quadraticCurveTo(noseX-3.2, -cockpitHW*0.55, shoulderX, -cockpitHW);
+  ctx.lineTo(shoulderX-6.5, -cockpitHW);
+  ctx.quadraticCurveTo(tailX+4.5, -tailHW*1.15, tailX, -tailHW*0.55);
+  ctx.lineTo(tailX, tailHW*0.55);
+  ctx.quadraticCurveTo(tailX+4.5, tailHW*1.15, shoulderX-6.5, cockpitHW);
+  ctx.lineTo(shoulderX, cockpitHW);
+  ctx.quadraticCurveTo(noseX-3.2, cockpitHW*0.55, noseX, 0);
+  ctx.closePath();
+}
+
 function drawCarSprite(x, y, angle, colorHex, dnf){
-  var L = 16, W = 7;
+  var L = 21, W = 8;
+
+  if (!dnf){
+    var shadow = ctx.createRadialGradient(x, y+1.5, 0, x, y+1.5, 10);
+    shadow.addColorStop(0, 'rgba(0,0,0,0.32)');
+    shadow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = shadow;
+    ctx.beginPath();
+    ctx.ellipse(x, y+1.5, 10, 6.5, 0, 0, Math.PI*2);
+    ctx.fill();
+  }
+
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
   ctx.globalAlpha = dnf ? 0.5 : 1;
 
   var bodyColor = dnf ? '#4a5265' : colorHex;
-  var wingColor = dnf ? '#3d4453' : shadeColor(colorHex, -35);
+  var darkColor = dnf ? '#3d4453' : shadeColor(colorHex, -45);
 
-  ctx.fillStyle = wingColor;
-  ctx.fillRect(-L/2 - 2.2, -W/2 - 1.8, 2.6, W + 3.6);
-  ctx.fillRect(L/2 - 1.4, -W/2 - 2.4, 2.2, W + 4.8);
-  ctx.fillStyle = wingColor;
-  roundRectPath(-L/2 + 3.5, -W/2 - 0.6, 6, W + 1.2, 1.4);
+  var frontAxle = L/2 - 4.8, rearAxle = -L/2 + 4.6, trackHalf = W/2 + 1.0;
+  ctx.fillStyle = 'rgba(8,9,13,0.95)';
+  [[frontAxle,-trackHalf],[frontAxle,trackHalf],[rearAxle,-trackHalf],[rearAxle,trackHalf]].forEach(function(w){
+    roundRectPath(w[0]-1.8, w[1]-1.2, 3.6, 2.4, 1.0);
+    ctx.fill();
+  });
+
+  ctx.fillStyle = darkColor;
+  roundRectPath(-L/2-2.0, -(W/2+1.2), 1.6, W+2.4, 0.5); ctx.fill();
+  roundRectPath(-L/2-2.2, -(W/2+1.3), 0.9, 1.3, 0.3); ctx.fill();
+  roundRectPath(-L/2-2.2, (W/2), 0.9, 1.3, 0.3); ctx.fill();
+
+  roundRectPath(L/2-0.8, -(W/2+1.3), 1.4, W+2.6, 0.5); ctx.fill();
+  roundRectPath(L/2-0.9, -(W/2+1.4), 0.9, 1.3, 0.3); ctx.fill();
+  roundRectPath(L/2-0.9, (W/2+0.1), 0.9, 1.3, 0.3); ctx.fill();
+  roundRectPath(L/2-2.4, -0.5, 1.8, 1.0, 0.3); ctx.fill();
+
+  carBodyPath(L, W);
+  if (dnf){
+    ctx.fillStyle = bodyColor;
+  } else {
+    var gloss = ctx.createLinearGradient(0, -W/2, 0, W/2);
+    gloss.addColorStop(0, shadeColor(bodyColor, 28));
+    gloss.addColorStop(0.5, bodyColor);
+    gloss.addColorStop(1, shadeColor(bodyColor, -22));
+    ctx.fillStyle = gloss;
+  }
   ctx.fill();
-  ctx.fillStyle = bodyColor;
-  roundRectPath(-L/2, -W/2, L, W, 2.4);
-  ctx.fill();
-  ctx.lineWidth = 0.8;
-  ctx.strokeStyle = 'rgba(6,8,12,0.75)';
+  ctx.lineWidth = 0.7;
+  ctx.strokeStyle = 'rgba(6,8,12,0.6)';
   ctx.stroke();
+
+  ctx.fillStyle = darkColor;
+  roundRectPath(-1.5, -W/2+0.4, 5.5, 1.2, 0.5); ctx.fill();
+  roundRectPath(-1.5, W/2-1.6, 5.5, 1.2, 0.5); ctx.fill();
+
+  ctx.strokeStyle = dnf ? 'rgba(120,124,132,0.7)' : 'rgba(205,209,217,0.9)';
+  ctx.lineWidth = 1.0;
   ctx.beginPath();
-  ctx.moveTo(L/2 - 1, -1.6);
-  ctx.lineTo(L/2 + 2.2, 0);
-  ctx.lineTo(L/2 - 1, 1.6);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = 'rgba(8,10,15,0.8)';
+  ctx.ellipse(1.0, 0, 2.9, 2.1, 0, Math.PI*0.18, Math.PI*1.82);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(6,8,11,0.9)';
   ctx.beginPath();
-  ctx.ellipse(0.8, 0, 2.8, 2.1, 0, 0, Math.PI*2);
+  ctx.ellipse(0.8, 0, 2.0, 1.5, 0, 0, Math.PI*2);
   ctx.fill();
 
   ctx.globalAlpha = 1;
