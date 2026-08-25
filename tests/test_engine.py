@@ -1,6 +1,6 @@
 import random
 
-from engine import NUM_LAPS, Compound, Weather
+from engine import NUM_LAPS, Compound, Weather, roll_circuit
 from race import plan_pit_laps
 from simulation import build_driver, run_simulation
 
@@ -19,9 +19,10 @@ def make_random_drivers(num_cars: int, rng: random.Random):
 
 def run_seeded(seed: int, num_cars: int = 8):
     rng = random.Random(seed)
+    circuit = roll_circuit(rng)
     weather = Weather.roll(rng)
     drivers = make_random_drivers(num_cars, rng)
-    return run_simulation(drivers, weather, rng)
+    return run_simulation(drivers, weather, circuit, rng)
 
 
 # ---------------------------------------------------------------------------
@@ -98,8 +99,9 @@ def test_finishers_sorted_by_total_time_ascending():
 
 def test_json_log_has_expected_shape():
     result = run_seeded(11)
-    assert set(result.keys()) >= {"num_laps", "weather", "drivers", "qualifying", "race", "result"}
+    assert set(result.keys()) >= {"num_laps", "circuit", "weather", "drivers", "qualifying", "race", "result"}
     assert result["num_laps"] == NUM_LAPS
+    assert set(result["circuit"].keys()) >= {"id", "name", "deg_multiplier", "overtake_difficulty", "crash_rate_multiplier", "pit_loss_bonus", "shape"}
     assert len(result["race"]["laps"]) == NUM_LAPS
 
     for lap_entry in result["race"]["laps"]:
@@ -143,6 +145,35 @@ def test_weather_eventually_evolves_across_many_races():
             changed = True
             break
     assert changed, "expected at least one weather change across 150 seeded races"
+
+
+# ---------------------------------------------------------------------------
+# Circuits
+# ---------------------------------------------------------------------------
+
+def test_circuit_is_one_of_the_known_layouts():
+    from engine import CIRCUITS
+    known_ids = {c.id for c in CIRCUITS}
+    for seed in range(20):
+        result = run_seeded(seed)
+        assert result["circuit"]["id"] in known_ids
+
+
+def test_crowdedness_scales_with_proximity_and_neighbor_aggression():
+    from race import crowdedness
+
+    assert crowdedness(None, None, None, None) == 0
+
+    close_low_agg = crowdedness(0.1, 1, None, None)
+    close_high_agg = crowdedness(0.1, 5, None, None)
+    assert close_high_agg > close_low_agg > 0
+
+    far = crowdedness(1.5, 5, None, None)
+    assert far == 0  # outside the danger window entirely
+
+    both_sides = crowdedness(0.1, 5, 0.1, 5)
+    one_side = crowdedness(0.1, 5, None, None)
+    assert both_sides > one_side
 
 
 def test_dnf_events_recorded_in_race_log():

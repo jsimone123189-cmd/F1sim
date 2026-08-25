@@ -10,7 +10,7 @@ per lap, plus the final result table and draft order.
 import json
 import random
 
-from engine import Compound, Driver, Weather, COLOR_HEX, DRAFT_ORDER_REVERSED, NUM_LAPS
+from engine import Compound, Driver, Weather, Circuit, COLOR_HEX, DRAFT_ORDER_REVERSED, NUM_LAPS
 from qualifying import run_qualifying
 from race import run_race
 
@@ -23,9 +23,10 @@ def build_driver(name: str, color: str, aggression: int, num_stops: int,
     return d
 
 
-def run_simulation(drivers: list[Driver], weather: Weather, rng: random.Random) -> dict:
-    """Run qualifying + race for the given drivers/weather and return a
-    JSON-serializable dict containing the full lap-by-lap log (spec §10).
+def run_simulation(drivers: list[Driver], weather: Weather, circuit: Circuit, rng: random.Random) -> dict:
+    """Run qualifying + race for the given drivers/weather/circuit and
+    return a JSON-serializable dict containing the full lap-by-lap log
+    (spec §10).
     """
     driver_ids = {id(d): i for i, d in enumerate(drivers)}
 
@@ -42,7 +43,7 @@ def run_simulation(drivers: list[Driver], weather: Weather, rng: random.Random) 
     ]
 
     pre_race_weather = weather.to_dict()
-    classified, weather_timeline = run_race(drivers, weather, rng)
+    classified, weather_timeline = run_race(drivers, weather, circuit, rng)
 
     laps = []
     for lap in range(1, NUM_LAPS + 1):
@@ -101,6 +102,7 @@ def run_simulation(drivers: list[Driver], weather: Weather, rng: random.Random) 
 
     return {
         "num_laps": NUM_LAPS,
+        "circuit": circuit.to_dict(),
         "weather": pre_race_weather,
         "weather_timeline": weather_timeline,
         "drivers": [

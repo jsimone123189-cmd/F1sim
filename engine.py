@@ -31,6 +31,12 @@ TRAFFIC_PENALTY = 0.08             # seconds lost sitting in dirty air
 DRAFT_ORDER_REVERSED = False       # flip to True to make P1 finisher = last pick
 WEATHER_EVOLVE_CHANCE = 0.03       # per-lap chance the track state shifts one step
 
+# Position/proximity risk model: how a driver's own aggression and nearby
+# rivals' aggression combine into incident risk (see race.py::crowdedness).
+NEIGHBOR_DANGER_WINDOW = 1.2        # seconds gap within which a rival counts as "nearby"
+AGGRESSION_RISK_RATE = 0.0005       # your own aggression's base risk contribution
+AMBIENT_DANGER_RATE = 0.0008        # risk from being near aggressive rivals, independent of your own aggression
+
 
 class Compound(Enum):
     SOFT = "Soft"
@@ -137,6 +143,79 @@ class Weather:
             return False
         self.track_state = TRACK_STATE_ORDER[rng.choice(options)]
         return True
+
+
+@dataclass
+class Circuit:
+    """A race track layout. `shape` is a compact procedural description the
+    visualization renders from -- a base ellipse (rx, ry) perturbed by a sum
+    of cosine harmonics (r(theta) = 1 + sum(amp * cos(k*theta + phase))) --
+    rather than a hand-authored point list, so it's cheap to keep the Python
+    engine and both JS renderers (viz/index.html, webapp) drawing the exact
+    same circuit from the same small config that travels in the JSON log.
+
+    The gameplay attributes give each circuit real strategic identity:
+    - deg_multiplier: tire wear multiplier (twisty circuits chew tires faster)
+    - overtake_difficulty: >1 harder to pass (reduces attempt/success chance,
+      increases time lost stuck in traffic), <1 easier
+    - crash_rate_multiplier: scales base + grip-related incident risk
+      (tight street circuits are less forgiving of a mistake)
+    - pit_loss_bonus: extra seconds added to every pit stop (long pit lane)
+    """
+    id: str
+    name: str
+    description: str
+    deg_multiplier: float
+    overtake_difficulty: float
+    crash_rate_multiplier: float
+    pit_loss_bonus: float
+    shape: dict
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id, "name": self.name, "description": self.description,
+            "deg_multiplier": self.deg_multiplier, "overtake_difficulty": self.overtake_difficulty,
+            "crash_rate_multiplier": self.crash_rate_multiplier, "pit_loss_bonus": self.pit_loss_bonus,
+            "shape": self.shape,
+        }
+
+
+CIRCUITS = [
+    Circuit(
+        id="sable-bay", name="Sable Bay Circuit",
+        description="Long straights and sweeping bends -- low deg, easy to pass, punishing at speed.",
+        deg_multiplier=0.85, overtake_difficulty=0.65, crash_rate_multiplier=1.1, pit_loss_bonus=0.0,
+        shape={"rx": 260, "ry": 150, "terms": [{"k": 2, "amp": 0.10, "phase": 0.3}, {"k": 3, "amp": 0.06, "phase": 1.8}]},
+    ),
+    Circuit(
+        id="verdant-ridge", name="Verdant Ridge Hillclimb",
+        description="Constant direction changes -- technical, hard on tires, very hard to pass.",
+        deg_multiplier=1.25, overtake_difficulty=1.3, crash_rate_multiplier=1.0, pit_loss_bonus=0.2,
+        shape={"rx": 190, "ry": 160, "terms": [{"k": 5, "amp": 0.14, "phase": 0.4}, {"k": 7, "amp": 0.08, "phase": 2.1}, {"k": 2, "amp": 0.05, "phase": 1.0}]},
+    ),
+    Circuit(
+        id="iron-harbor", name="Iron Harbor Street Circuit",
+        description="Tight street course, walls close in -- brutal on mistakes, brutal to overtake.",
+        deg_multiplier=1.0, overtake_difficulty=1.6, crash_rate_multiplier=1.5, pit_loss_bonus=0.4,
+        shape={"rx": 150, "ry": 120, "terms": [{"k": 4, "amp": 0.16, "phase": 0.9}, {"k": 6, "amp": 0.10, "phase": 2.5}]},
+    ),
+    Circuit(
+        id="sunspire", name="Sunspire Speedway",
+        description="Elongated high-speed bowl with a couple of chicanes -- fast, tires take a beating.",
+        deg_multiplier=1.1, overtake_difficulty=0.75, crash_rate_multiplier=1.05, pit_loss_bonus=0.0,
+        shape={"rx": 280, "ry": 110, "terms": [{"k": 2, "amp": 0.06, "phase": 0.0}, {"k": 8, "amp": 0.03, "phase": 1.2}]},
+    ),
+    Circuit(
+        id="northgate", name="Northgate Endurance Circuit",
+        description="A balanced, flowing all-rounder -- no extreme strengths or weaknesses.",
+        deg_multiplier=1.0, overtake_difficulty=1.0, crash_rate_multiplier=1.0, pit_loss_bonus=0.1,
+        shape={"rx": 230, "ry": 170, "terms": [{"k": 3, "amp": 0.09, "phase": 0.6}, {"k": 5, "amp": 0.05, "phase": 2.0}]},
+    ),
+]
+
+
+def roll_circuit(rng: random.Random) -> Circuit:
+    return rng.choice(CIRCUITS)
 
 
 @dataclass

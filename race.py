@@ -1,10 +1,11 @@
 import random
 
 from engine import (
-    TIRES, Weather, Driver,
+    TIRES, Weather, Driver, Circuit,
     BASE_LAP_TIME, NUM_LAPS, GRIP_PENALTY_FACTOR, RACE_RANDOM_VARIANCE,
     PIT_STOP_BASE_RANGE, PIT_STOP_SLOW_CHANCE, PIT_STOP_SLOW_EXTRA_RANGE,
     BASE_MECHANICAL_RATE, TRAFFIC_GAP_THRESHOLD, TRAFFIC_PENALTY,
+    NEIGHBOR_DANGER_WINDOW, AGGRESSION_RISK_RATE, AMBIENT_DANGER_RATE,
 )
 
 # DNF reason weighting (README known issue #2): a DNF caused by close-quarters
@@ -41,22 +42,37 @@ def aggression_degradation_multiplier(aggression: int) -> float:
     return 1 + 0.08 * aggression
 
 
-def pit_stop_time_loss(rng: random.Random) -> float:
-    loss = rng.uniform(*PIT_STOP_BASE_RANGE)
+def pit_stop_time_loss(rng: random.Random, circuit: Circuit) -> float:
+    loss = rng.uniform(*PIT_STOP_BASE_RANGE) + circuit.pit_loss_bonus
     if rng.random() < PIT_STOP_SLOW_CHANCE:
         loss += rng.uniform(*PIT_STOP_SLOW_EXTRA_RANGE)
     return loss
 
 
-def incident_probability(driver: Driver, weather: Weather, tire_spec, in_traffic: bool, attempting_overtake: bool) -> float:
-    p = BASE_MECHANICAL_RATE
-    p += 0.0005 * driver.aggression  # aggression risk
+def crowdedness(gap_ahead: float, ahead_aggression: int, gap_behind: float, behind_aggression: int) -> float:
+    """How boxed-in a driver is this lap, weighted by how aggressive the
+    cars right around them are -- not just whether someone is nearby.
+    0 = clean air; up to ~2.0 = squeezed between two maximum-aggression
+    rivals both within the danger window."""
+    total = 0.0
+    if gap_ahead is not None and gap_ahead < NEIGHBOR_DANGER_WINDOW:
+        closeness = 1 - gap_ahead / NEIGHBOR_DANGER_WINDOW
+        total += closeness * (0.4 + 0.6 * ahead_aggression / 5)
+    if gap_behind is not None and gap_behind < NEIGHBOR_DANGER_WINDOW:
+        closeness = 1 - gap_behind / NEIGHBOR_DANGER_WINDOW
+        total += closeness * (0.4 + 0.6 * behind_aggression / 5)
+    return total
+
+
+def incident_probability(driver: Driver, weather: Weather, tire_spec, attempting_overtake: bool,
+                          circuit: Circuit, crowd: float) -> float:
     grip = weather.effective_grip(tire_spec)
-    p += (1 - grip) * 0.004  # low grip risk (bigger on wet track w/ bad-wet tire)
-    if in_traffic:
-        p += 0.0015
+    p = BASE_MECHANICAL_RATE * circuit.crash_rate_multiplier
+    p += (1 - grip) * 0.004 * circuit.crash_rate_multiplier  # low grip risk (bigger on wet track w/ bad-wet tire)
+    p += AMBIENT_DANGER_RATE * crowd  # nearby aggressive rivals endanger you regardless of your own choices
+    p += AGGRESSION_RISK_RATE * driver.aggression * (1 + crowd)  # your own aggression, amplified by crowding
     if attempting_overtake:
-        p += 0.002 + 0.001 * driver.aggression
+        p += (0.002 + 0.001 * driver.aggression) * circuit.overtake_difficulty
     return p
 
 
@@ -80,7 +96,7 @@ def setup_race_strategies(drivers: list[Driver], rng: random.Random):
         d.lap_log = []
 
 
-def run_race(drivers: list[Driver], weather: Weather, rng: random.Random):
+def run_race(drivers: list[Driver], weather: Weather, circuit: Circuit, rng: random.Random):
     """Returns (classified, weather_timeline). weather_timeline is a list of
     {"lap", "track_state", "temperature"} snapshots, one per lap, reflecting
     any lap-to-lap weather evolution (engine.Weather.step)."""
@@ -96,11 +112,20 @@ def run_race(drivers: list[Driver], weather: Weather, rng: random.Random):
         })
 
         active = [d for d in drivers if not d.dnf]
-        # running order & gaps BEFORE this lap's time is added
+        # running order & gaps BEFORE this lap's time is added. Each driver
+        # gets both neighbors (not just the one ahead) so crash risk can
+        # reflect who's actually racing around them this lap.
         running_order = sorted(active, key=lambda d: d.total_time)
-        gap_ahead = {}
+        neighbors = {}
         for i, d in enumerate(running_order):
-            gap_ahead[d.name] = None if i == 0 else d.total_time - running_order[i - 1].total_time
+            ahead = running_order[i - 1] if i > 0 else None
+            behind = running_order[i + 1] if i + 1 < len(running_order) else None
+            neighbors[d.name] = {
+                "gap_ahead": (d.total_time - ahead.total_time) if ahead else None,
+                "ahead_aggression": ahead.aggression if ahead else None,
+                "gap_behind": (behind.total_time - d.total_time) if behind else None,
+                "behind_aggression": behind.aggression if behind else None,
+            }
 
         for d in active:
             d.laps_on_current_tire += 1
@@ -112,30 +137,33 @@ def run_race(drivers: list[Driver], weather: Weather, rng: random.Random):
             heat_mult = weather.heat_multiplier(tire)
             degradation_penalty = (
                 tire.degradation_rate
+                * circuit.deg_multiplier
                 * heat_mult
                 * aggression_degradation_multiplier(d.aggression)
                 * (d.laps_on_current_tire ** 1.15)
             )
 
-            gap = gap_ahead.get(d.name)
+            nb = neighbors[d.name]
+            gap = nb["gap_ahead"]
             in_traffic = gap is not None and gap < TRAFFIC_GAP_THRESHOLD
+            crowd = crowdedness(nb["gap_ahead"], nb["ahead_aggression"], nb["gap_behind"], nb["behind_aggression"])
             attempting_overtake = False
             traffic_penalty = 0.0
             overtake_note = None
 
             if in_traffic:
-                attempt_prob = 0.15 + 0.10 * d.aggression
+                attempt_prob = min(0.9, (0.15 + 0.10 * d.aggression) / circuit.overtake_difficulty)
                 attempting_overtake = rng.random() < attempt_prob
                 if attempting_overtake:
                     # success more likely if this car is just plain faster
-                    success_prob = 0.4 + 0.05 * d.aggression
+                    success_prob = min(0.9, (0.4 + 0.05 * d.aggression) / circuit.overtake_difficulty)
                     if rng.random() < success_prob:
                         overtake_note = "overtake_success"
                     else:
-                        traffic_penalty = TRAFFIC_PENALTY
+                        traffic_penalty = TRAFFIC_PENALTY * circuit.overtake_difficulty
                         overtake_note = "overtake_failed"
                 else:
-                    traffic_penalty = TRAFFIC_PENALTY
+                    traffic_penalty = TRAFFIC_PENALTY * circuit.overtake_difficulty
 
             lap_time = (
                 BASE_LAP_TIME
@@ -150,11 +178,11 @@ def run_race(drivers: list[Driver], weather: Weather, rng: random.Random):
             pit_this_lap = lap in d.pit_laps
             pit_loss = 0.0
             if pit_this_lap:
-                pit_loss = pit_stop_time_loss(rng)
+                pit_loss = pit_stop_time_loss(rng, circuit)
                 lap_time += pit_loss
 
             # incident roll
-            p_incident = incident_probability(d, weather, tire, in_traffic, attempting_overtake)
+            p_incident = incident_probability(d, weather, tire, attempting_overtake, circuit, crowd)
             if rng.random() < p_incident:
                 d.dnf = True
                 d.dnf_lap = lap

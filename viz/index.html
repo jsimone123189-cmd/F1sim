@@ -694,6 +694,7 @@
   </header>
 
   <div class="status-strip">
+    <span class="chip" id="chip-circuit"><b>&mdash;</b></span>
     <span class="chip" id="chip-weather"><b>&mdash;</b></span>
     <span class="chip" id="chip-cars">&mdash; cars</span>
     <span class="chip" id="chip-source">sample log</span>
@@ -831,9 +832,11 @@ function loadRace(data, sourceLabel){
   laneOffset = {};
   data.drivers.forEach(function(d, i){
     trailHistory[d.driver_id] = [];
-    laneOffset[d.driver_id] = ((i % 5) - 2) * 4.5;
+    laneOffset[d.driver_id] = ((i % 5) - 2) * 6;
   });
 
+  buildTrackGeometry((data.circuit && data.circuit.shape) ? data.circuit.shape : DEFAULT_TRACK_SHAPE);
+  setCircuitChip(data.circuit);
   setWeatherChip(data.weather);
   document.getElementById('chip-cars').textContent = data.drivers.length + ' cars';
   document.getElementById('chip-source').textContent = sourceLabel;
@@ -842,6 +845,13 @@ function loadRace(data, sourceLabel){
   buildQualiTable();
   buildDraftBoardShell();
   renderFrame(true);
+}
+
+function setCircuitChip(circuit){
+  var cchip = document.getElementById('chip-circuit');
+  if (!circuit){ cchip.innerHTML = '<b>Unknown circuit</b>'; return; }
+  cchip.innerHTML = '<b>' + escapeHtml(circuit.name) + '</b>';
+  cchip.title = circuit.description || '';
 }
 
 function setWeatherChip(w){
@@ -863,39 +873,97 @@ function weatherAt(t){
 }
 
 // ---------------------------------------------------------------------
-// Track geometry (stadium: two straights + two semicircles)
+// Track geometry -- a real closed circuit shape, procedurally generated
+// from the rolled circuit's `shape` (a base ellipse perturbed by cosine
+// harmonics: r(theta) = 1 + sum(amp*cos(k*theta+phase)), same formula as
+// engine.py/engine.js so what's drawn matches what was actually rolled).
+// Sampled to a constant-speed (arc-length) lookup so trackPoint(f)
+// behaves like a normal parametric track: f in [0,1) around the lap,
+// angle = direction of travel, with an optional constant-pixel radial
+// offset for drawing the track band / curbs / boundary lines.
 // ---------------------------------------------------------------------
 
-var TRACK = { cx: 450, cy: 260, halfLen: 260, r: 150 };
+var DEFAULT_TRACK_SHAPE = { rx: 230, ry: 170, terms: [{k:3,amp:0.09,phase:0.6},{k:5,amp:0.05,phase:2.0}] };
+var TRACK = null; // built by buildTrackGeometry() once per race load
 
-function trackPoint(f){
+function shapeRawPoint(shape, theta){
+  var scale = 1;
+  shape.terms.forEach(function(t){ scale += t.amp * Math.cos(t.k * theta + t.phase); });
+  return { x: shape.rx * scale * Math.cos(theta), y: shape.ry * scale * Math.sin(theta) };
+}
+
+function buildTrackGeometry(shape){
+  var N = 720;
+  var raw = [];
+  for (var i = 0; i <= N; i++) raw.push(shapeRawPoint(shape, (i / N) * Math.PI * 2));
+
+  var minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+  raw.forEach(function(p){
+    if (p.x<minX) minX=p.x; if (p.x>maxX) maxX=p.x;
+    if (p.y<minY) minY=p.y; if (p.y>maxY) maxY=p.y;
+  });
+
+  var band = 40; // track ribbon width, constant canvas px regardless of track scale
+  var margin = 56;
+  var availW = canvas.width - margin*2, availH = canvas.height - margin*2;
+  var scale = Math.min(availW / (maxX-minX), availH / (maxY-minY));
+  var cx = canvas.width/2 - ((minX+maxX)/2) * scale;
+  var cy = canvas.height/2 - ((minY+maxY)/2) * scale;
+
+  // Cumulative arc length over the raw (pre-scale) samples -- fractional
+  // position along the loop is invariant to the later uniform scale.
+  var cum = [0];
+  for (var j = 1; j <= N; j++){
+    var dx = raw[j].x - raw[j-1].x, dy = raw[j].y - raw[j-1].y;
+    cum.push(cum[j-1] + Math.sqrt(dx*dx + dy*dy));
+  }
+
+  TRACK = { raw: raw, cum: cum, totalLen: cum[N], scale: scale, cx: cx, cy: cy, band: band, N: N };
+}
+
+// Raw (pre-scale, pre-translate) shape point at constant-speed lap
+// fraction f, via binary search + lerp over the arc-length table.
+function rawAtFraction(f){
   f = ((f % 1) + 1) % 1;
-  var straight = TRACK.halfLen * 2;
-  var arc = Math.PI * TRACK.r;
-  var total = 2 * straight + 2 * arc;
-  var d = f * total;
+  var target = f * TRACK.totalLen;
+  var cum = TRACK.cum, lo = 0, hi = TRACK.N;
+  while (lo < hi){
+    var mid = (lo + hi) >> 1;
+    if (cum[mid] < target) lo = mid + 1; else hi = mid;
+  }
+  var i1 = Math.max(1, lo), i0 = i1 - 1;
+  var span = cum[i1] - cum[i0];
+  var t = span > 0 ? (target - cum[i0]) / span : 0;
+  var a = TRACK.raw[i0], b = TRACK.raw[i1];
+  return { x: a.x + (b.x-a.x)*t, y: a.y + (b.y-a.y)*t };
+}
 
-  if (d < straight){
-    // top straight, left -> right
-    var x = TRACK.cx - TRACK.halfLen + d;
-    return { x: x, y: TRACK.cy - TRACK.r, angle: 0 };
-  }
-  d -= straight;
-  if (d < arc){
-    // right semicircle, top -> bottom, centered at (cx+halfLen, cy)
-    var a = -Math.PI/2 + (d / arc) * Math.PI;
-    return { x: TRACK.cx + TRACK.halfLen + TRACK.r * Math.cos(a), y: TRACK.cy + TRACK.r * Math.sin(a), angle: a + Math.PI/2 };
-  }
-  d -= arc;
-  if (d < straight){
-    // bottom straight, right -> left
-    var x2 = TRACK.cx + TRACK.halfLen - d;
-    return { x: x2, y: TRACK.cy + TRACK.r, angle: Math.PI };
-  }
-  d -= straight;
-  // left semicircle, bottom -> top, centered at (cx-halfLen, cy)
-  var a2 = Math.PI/2 + (d / arc) * Math.PI;
-  return { x: TRACK.cx - TRACK.halfLen + TRACK.r * Math.cos(a2), y: TRACK.cy + TRACK.r * Math.sin(a2), angle: a2 + Math.PI/2 };
+// Canvas-space point + direction of travel at lap fraction f, optionally
+// offset by a constant number of canvas px along the outward normal
+// (positive = away from the track center, negative = toward it) --
+// used to draw the band edges, curbs, and the start/finish strip.
+function trackPoint(f, offsetPx){
+  var eps = 0.0015;
+  var p0 = rawAtFraction(f - eps), p1 = rawAtFraction(f + eps), p = rawAtFraction(f);
+  var tx = p1.x - p0.x, ty = p1.y - p0.y;
+  var tlen = Math.sqrt(tx*tx + ty*ty) || 1;
+  tx /= tlen; ty /= tlen;
+  // Every circuit shape here is star-shaped around the origin (radius is
+  // always positive), so "away from (0,0)" reliably means "outward".
+  var nx = ty, ny = -tx;
+  if (p.x*nx + p.y*ny < 0){ nx = -nx; ny = -ny; }
+  var off = offsetPx || 0;
+  return {
+    x: TRACK.cx + p.x*TRACK.scale + nx*off,
+    y: TRACK.cy + p.y*TRACK.scale + ny*off,
+    angle: Math.atan2(ty, tx)
+  };
+}
+
+function pathThroughPoints(pts){
+  ctx.beginPath();
+  pts.forEach(function(p, i){ if (i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); });
+  ctx.closePath();
 }
 
 function drawTrack(){
@@ -903,28 +971,41 @@ function drawTrack(){
   ctx.clearRect(0,0,w,h);
 
   var styles = getComputedStyle(document.documentElement);
+  var bg = styles.getPropertyValue('--bg').trim() || '#0a0d12';
   var trackSurface = styles.getPropertyValue('--track-surface').trim() || '#1a2029';
   var trackLine = styles.getPropertyValue('--track-line').trim() || '#333d4f';
 
-  ctx.fillStyle = trackSurface;
+  ctx.fillStyle = bg;
   ctx.fillRect(0,0,w,h);
 
-  // Outer + inner boundary of the ring (band thickness ~34px)
-  var band = 34;
-  [TRACK.r + band/2, TRACK.r - band/2].forEach(function(r, idx){
-    ctx.beginPath();
-    for (var i=0;i<=400;i++){
-      var f = i/400;
-      var p = trackPointAtRadius(f, r);
-      if (i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y);
-    }
-    ctx.closePath();
-    ctx.strokeStyle = trackLine;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  });
+  var half = TRACK.band/2, M = 300;
+  var outerPts = [], innerPts = [];
+  for (var i=0;i<=M;i++){
+    var f = i/M;
+    outerPts.push(trackPoint(f, half));
+    innerPts.push(trackPoint(f, -half));
+  }
 
-  drawCurbs(band);
+  // Infield (area inside the inner boundary) reads as off-track runoff.
+  pathThroughPoints(innerPts);
+  ctx.fillStyle = shadeColor(bg, 14);
+  ctx.fill();
+
+  // Track band itself: fill the ring between outer and inner boundaries.
+  ctx.beginPath();
+  outerPts.forEach(function(p,i){ if (i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); });
+  ctx.closePath();
+  innerPts.forEach(function(p,i){ if (i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); });
+  ctx.closePath();
+  ctx.fillStyle = trackSurface;
+  ctx.fill('evenodd');
+
+  ctx.strokeStyle = trackLine;
+  ctx.lineWidth = 2;
+  pathThroughPoints(outerPts); ctx.stroke();
+  pathThroughPoints(innerPts); ctx.stroke();
+
+  drawCurbs(half);
 
   // start/finish line: a small checkered strip across the track band
   var sf = trackPoint(0);
@@ -932,48 +1013,61 @@ function drawTrack(){
   ctx.translate(sf.x, sf.y);
   ctx.rotate(sf.angle);
   var stripDepth = 6, rows = 2, cols = 6;
-  var cellW = stripDepth/cols, cellH = band/rows;
+  var cellW = stripDepth/cols, cellH = TRACK.band/rows;
   for (var row=0; row<rows; row++){
     for (var col=0; col<cols; col++){
       ctx.fillStyle = ((row+col)%2===0) ? '#e8ecf0' : '#1a1f27';
-      ctx.fillRect(-stripDepth/2 + col*cellW, -band/2 + row*cellH, cellW, cellH);
+      ctx.fillRect(-stripDepth/2 + col*cellW, -TRACK.band/2 + row*cellH, cellW, cellH);
     }
   }
   ctx.restore();
 }
 
-// Alternating red/white kerb blocks along the outer edge of both corners
-// (the semicircle sections of the stadium loop), like real track kerbing.
-function drawCurbs(band){
-  var outerR = TRACK.r + band/2;
-  var straight = TRACK.halfLen * 2;
-  var arc = Math.PI * TRACK.r;
-  var total = 2*straight + 2*arc;
-  var ranges = [
-    [straight/total, (straight+arc)/total],
-    [(2*straight+arc)/total, 1]
-  ];
-  ranges.forEach(function(range){
-    var f0 = range[0], f1 = range[1], n = 26;
-    for (var i=0;i<n;i++){
-      var fa = f0 + (f1-f0)*i/n, fb = f0 + (f1-f0)*(i+1)/n;
-      var pa1 = trackPointAtRadius(fa, outerR+0.5), pa2 = trackPointAtRadius(fa, outerR+5);
-      var pb1 = trackPointAtRadius(fb, outerR+0.5), pb2 = trackPointAtRadius(fb, outerR+5);
+// Alternating red/white kerb blocks along the outer edge, auto-placed by
+// curvature rather than a hardcoded corner list -- the highest-curvature
+// third or so of the lap (wherever this particular circuit's harmonics
+// put its corners) gets kerbing, exactly like a real track.
+function drawCurbs(half){
+  var M = 300;
+  var angles = [];
+  for (var i=0;i<M;i++) angles.push(trackPoint(i/M).angle);
+  var curv = [];
+  for (var i=0;i<M;i++){
+    var a0 = angles[(i-1+M)%M], a1 = angles[(i+1)%M];
+    curv.push(Math.abs(Math.atan2(Math.sin(a1-a0), Math.cos(a1-a0))));
+  }
+
+  var sorted = curv.slice().sort(function(a,b){ return b-a; });
+  var threshold = sorted[Math.floor(M*0.35)];
+
+  var minIdx = 0, minVal = Infinity;
+  for (var i=0;i<M;i++){ if (curv[i] < minVal){ minVal = curv[i]; minIdx = i; } }
+
+  var runs = [], curRun = null;
+  for (var j=0;j<M;j++){
+    var idx = (minIdx + j) % M;
+    if (curv[idx] >= threshold){
+      if (!curRun) curRun = { start: j, end: j }; else curRun.end = j;
+    } else if (curRun){ runs.push(curRun); curRun = null; }
+  }
+  if (curRun) runs.push(curRun);
+
+  runs.forEach(function(run){
+    var count = run.end - run.start + 1;
+    if (count < 5) return;
+    var n = Math.max(6, Math.round(count/2));
+    for (var k=0;k<n;k++){
+      var ga = run.start + (count*k)/n, gb = run.start + (count*(k+1))/n;
+      var fa = ((minIdx+ga) % M) / M, fb = ((minIdx+gb) % M) / M;
+      var pa1 = trackPoint(fa, half+0.5), pa2 = trackPoint(fa, half+7);
+      var pb1 = trackPoint(fb, half+0.5), pb2 = trackPoint(fb, half+7);
       ctx.beginPath();
       ctx.moveTo(pa1.x,pa1.y); ctx.lineTo(pa2.x,pa2.y); ctx.lineTo(pb2.x,pb2.y); ctx.lineTo(pb1.x,pb1.y);
       ctx.closePath();
-      ctx.fillStyle = (i%2===0) ? '#c0392b' : '#e8ecf0';
+      ctx.fillStyle = (k%2===0) ? '#c0392b' : '#e8ecf0';
       ctx.fill();
     }
   });
-}
-
-function trackPointAtRadius(f, rOverride){
-  var save = TRACK.r;
-  TRACK.r = rOverride;
-  var p = trackPoint(f);
-  TRACK.r = save;
-  return p;
 }
 
 // ---------------------------------------------------------------------
@@ -1128,22 +1222,25 @@ function carBodyPath(L, W){
   ctx.closePath();
 }
 
+var CAR_SCALE = 1.4; // bumped up so cars read clearly at a glance
+
 function drawCarSprite(x, y, angle, colorHex, dnf){
   var L = 21, W = 8;
 
   if (!dnf){
-    var shadow = ctx.createRadialGradient(x, y+1.5, 0, x, y+1.5, 10);
+    var shadow = ctx.createRadialGradient(x, y+1.5*CAR_SCALE, 0, x, y+1.5*CAR_SCALE, 10*CAR_SCALE);
     shadow.addColorStop(0, 'rgba(0,0,0,0.32)');
     shadow.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = shadow;
     ctx.beginPath();
-    ctx.ellipse(x, y+1.5, 10, 6.5, 0, 0, Math.PI*2);
+    ctx.ellipse(x, y+1.5*CAR_SCALE, 10*CAR_SCALE, 6.5*CAR_SCALE, 0, 0, Math.PI*2);
     ctx.fill();
   }
 
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
+  ctx.scale(CAR_SCALE, CAR_SCALE);
   ctx.globalAlpha = dnf ? 0.5 : 1;
 
   var bodyColor = dnf ? '#4a5265' : colorHex;
@@ -1382,7 +1479,10 @@ var CFG = {
   TRAFFIC_GAP_THRESHOLD: 0.5,
   TRAFFIC_PENALTY: 0.08,
   WEATHER_EVOLVE_CHANCE: 0.03,
-  DRAFT_ORDER_REVERSED: false
+  DRAFT_ORDER_REVERSED: false,
+  NEIGHBOR_DANGER_WINDOW: 1.2,
+  AGGRESSION_RISK_RATE: 0.0005,
+  AMBIENT_DANGER_RATE: 0.0008
 };
 
 var COMPOUNDS = ['Soft', 'Medium', 'Hard', 'Wet'];
@@ -1394,6 +1494,33 @@ var TIRES = {
 };
 var TRACK_STATES = ['Dry', 'Damp', 'Wet'];
 var TEMPS = ['Cold', 'Mild', 'Hot'];
+
+// Circuit layouts -- kept in exact sync with engine.py's CIRCUITS. `shape`
+// drives the renderer (a base ellipse perturbed by cosine harmonics); the
+// rest are gameplay attributes giving each circuit real strategic identity.
+var CIRCUITS = [
+  { id: 'sable-bay', name: 'Sable Bay Circuit',
+    description: 'Long straights and sweeping bends -- low deg, easy to pass, punishing at speed.',
+    deg_multiplier: 0.85, overtake_difficulty: 0.65, crash_rate_multiplier: 1.1, pit_loss_bonus: 0.0,
+    shape: { rx: 260, ry: 150, terms: [{k:2,amp:0.10,phase:0.3},{k:3,amp:0.06,phase:1.8}] } },
+  { id: 'verdant-ridge', name: 'Verdant Ridge Hillclimb',
+    description: 'Constant direction changes -- technical, hard on tires, very hard to pass.',
+    deg_multiplier: 1.25, overtake_difficulty: 1.3, crash_rate_multiplier: 1.0, pit_loss_bonus: 0.2,
+    shape: { rx: 190, ry: 160, terms: [{k:5,amp:0.14,phase:0.4},{k:7,amp:0.08,phase:2.1},{k:2,amp:0.05,phase:1.0}] } },
+  { id: 'iron-harbor', name: 'Iron Harbor Street Circuit',
+    description: 'Tight street course, walls close in -- brutal on mistakes, brutal to overtake.',
+    deg_multiplier: 1.0, overtake_difficulty: 1.6, crash_rate_multiplier: 1.5, pit_loss_bonus: 0.4,
+    shape: { rx: 150, ry: 120, terms: [{k:4,amp:0.16,phase:0.9},{k:6,amp:0.10,phase:2.5}] } },
+  { id: 'sunspire', name: 'Sunspire Speedway',
+    description: 'Elongated high-speed bowl with a couple of chicanes -- fast, tires take a beating.',
+    deg_multiplier: 1.1, overtake_difficulty: 0.75, crash_rate_multiplier: 1.05, pit_loss_bonus: 0.0,
+    shape: { rx: 280, ry: 110, terms: [{k:2,amp:0.06,phase:0.0},{k:8,amp:0.03,phase:1.2}] } },
+  { id: 'northgate', name: 'Northgate Endurance Circuit',
+    description: 'A balanced, flowing all-rounder -- no extreme strengths or weaknesses.',
+    deg_multiplier: 1.0, overtake_difficulty: 1.0, crash_rate_multiplier: 1.0, pit_loss_bonus: 0.1,
+    shape: { rx: 230, ry: 170, terms: [{k:3,amp:0.09,phase:0.6},{k:5,amp:0.05,phase:2.0}] } }
+];
+function rollCircuit(rng){ return CIRCUITS[Math.floor(rng.random() * CIRCUITS.length)]; }
 var TRAFFIC_DNF_REASONS = ['Collision', 'Spin', 'Loss of control', 'Mechanical failure'];
 var TRAFFIC_DNF_WEIGHTS = [50, 25, 15, 10];
 var BASE_DNF_REASONS = ['Mechanical failure', 'Spin', 'Loss of control', 'Collision'];
@@ -1481,16 +1608,34 @@ function planPitLaps(numStops, rng){
   lap2 = Math.max(lap1 + 3, Math.min(CFG.NUM_LAPS - 2, lap2));
   return [lap1, lap2];
 }
-function pitStopTimeLoss(rng){
-  var loss = rng.uniform(CFG.PIT_STOP_BASE_MIN, CFG.PIT_STOP_BASE_MAX);
+function pitStopTimeLoss(rng, circuit){
+  var loss = rng.uniform(CFG.PIT_STOP_BASE_MIN, CFG.PIT_STOP_BASE_MAX) + circuit.pit_loss_bonus;
   if (rng.random() < CFG.PIT_STOP_SLOW_CHANCE) loss += rng.uniform(CFG.PIT_STOP_SLOW_EXTRA_MIN, CFG.PIT_STOP_SLOW_EXTRA_MAX);
   return loss;
 }
-function incidentProbability(driver, weather, tire, inTraffic, attemptingOvertake){
-  var p = CFG.BASE_MECHANICAL_RATE + 0.0005 * driver.aggression;
-  p += (1 - effectiveGrip(weather.track_state, tire)) * 0.004;
-  if (inTraffic) p += 0.0015;
-  if (attemptingOvertake) p += 0.002 + 0.001 * driver.aggression;
+// How boxed-in a driver is this lap, weighted by how aggressive the cars
+// right around them are -- not just whether someone is nearby. 0 = clean
+// air; up to ~2.0 = squeezed between two max-aggression rivals both within
+// the danger window.
+function crowdedness(gapAhead, aheadAggression, gapBehind, behindAggression){
+  var total = 0;
+  if (gapAhead != null && gapAhead < CFG.NEIGHBOR_DANGER_WINDOW){
+    var closenessA = 1 - gapAhead / CFG.NEIGHBOR_DANGER_WINDOW;
+    total += closenessA * (0.4 + 0.6 * aheadAggression / 5);
+  }
+  if (gapBehind != null && gapBehind < CFG.NEIGHBOR_DANGER_WINDOW){
+    var closenessB = 1 - gapBehind / CFG.NEIGHBOR_DANGER_WINDOW;
+    total += closenessB * (0.4 + 0.6 * behindAggression / 5);
+  }
+  return total;
+}
+function incidentProbability(driver, weather, tire, attemptingOvertake, circuit, crowd){
+  var grip = effectiveGrip(weather.track_state, tire);
+  var p = CFG.BASE_MECHANICAL_RATE * circuit.crash_rate_multiplier;
+  p += (1 - grip) * 0.004 * circuit.crash_rate_multiplier;
+  p += CFG.AMBIENT_DANGER_RATE * crowd;
+  p += CFG.AGGRESSION_RISK_RATE * driver.aggression * (1 + crowd);
+  if (attemptingOvertake) p += (0.002 + 0.001 * driver.aggression) * circuit.overtake_difficulty;
   return p;
 }
 function rollDnfReason(rng, inTraffic, attemptingOvertake){
@@ -1498,7 +1643,7 @@ function rollDnfReason(rng, inTraffic, attemptingOvertake){
   return rng.choices(BASE_DNF_REASONS, BASE_DNF_WEIGHTS);
 }
 
-function jsRunRace(drivers, weather, rng){
+function jsRunRace(drivers, weather, circuit, rng){
   drivers.forEach(function(d){
     d.pit_laps = planPitLaps(d.num_stops, rng);
     d.current_stint_index = 0;
@@ -1517,10 +1662,19 @@ function jsRunRace(drivers, weather, rng){
     if (changed) weatherEvents.push({ lap: lap, driver_id: null, type: 'WEATHER', detail: 'Track now ' + weather.track_state });
 
     var active = drivers.filter(function(d){ return !d.dnf; });
+    // Each driver gets both neighbors (not just the one ahead) so crash
+    // risk can reflect who's actually racing around them this lap.
     var runningOrder = active.slice().sort(function(a, b){ return a.total_time - b.total_time; });
-    var gapAhead = {};
+    var neighbors = {};
     runningOrder.forEach(function(d, i){
-      gapAhead[d.driver_id] = i === 0 ? null : d.total_time - runningOrder[i - 1].total_time;
+      var ahead = i > 0 ? runningOrder[i-1] : null;
+      var behind = i+1 < runningOrder.length ? runningOrder[i+1] : null;
+      neighbors[d.driver_id] = {
+        gapAhead: ahead ? d.total_time - ahead.total_time : null,
+        aheadAgg: ahead ? ahead.aggression : null,
+        gapBehind: behind ? behind.total_time - d.total_time : null,
+        behindAgg: behind ? behind.aggression : null
+      };
     });
 
     active.forEach(function(d){
@@ -1529,22 +1683,26 @@ function jsRunRace(drivers, weather, rng){
       var tire = TIRES[compoundName];
 
       var gripPenalty = (1 - effectiveGrip(weather.track_state, tire)) * CFG.GRIP_PENALTY_FACTOR;
-      var degPenalty = tire.deg * heatMultiplier(weather.temperature, tire) * (1 + 0.08 * d.aggression) *
+      var degPenalty = tire.deg * circuit.deg_multiplier * heatMultiplier(weather.temperature, tire) * (1 + 0.08 * d.aggression) *
         Math.pow(d.laps_on_current_tire, 1.15);
 
-      var gap = gapAhead[d.driver_id];
+      var nb = neighbors[d.driver_id];
+      var gap = nb.gapAhead;
       var inTraffic = gap != null && gap < CFG.TRAFFIC_GAP_THRESHOLD;
+      var crowd = crowdedness(nb.gapAhead, nb.aheadAgg, nb.gapBehind, nb.behindAgg);
       var attemptingOvertake = false;
       var trafficPenalty = 0;
       var overtakeNote = null;
 
       if (inTraffic){
-        attemptingOvertake = rng.random() < (0.15 + 0.10 * d.aggression);
+        var attemptProb = Math.min(0.9, (0.15 + 0.10 * d.aggression) / circuit.overtake_difficulty);
+        attemptingOvertake = rng.random() < attemptProb;
         if (attemptingOvertake){
-          if (rng.random() < (0.4 + 0.05 * d.aggression)){ overtakeNote = 'overtake_success'; }
-          else { trafficPenalty = CFG.TRAFFIC_PENALTY; overtakeNote = 'overtake_failed'; }
+          var successProb = Math.min(0.9, (0.4 + 0.05 * d.aggression) / circuit.overtake_difficulty);
+          if (rng.random() < successProb){ overtakeNote = 'overtake_success'; }
+          else { trafficPenalty = CFG.TRAFFIC_PENALTY * circuit.overtake_difficulty; overtakeNote = 'overtake_failed'; }
         } else {
-          trafficPenalty = CFG.TRAFFIC_PENALTY;
+          trafficPenalty = CFG.TRAFFIC_PENALTY * circuit.overtake_difficulty;
         }
       }
 
@@ -1553,9 +1711,9 @@ function jsRunRace(drivers, weather, rng){
 
       var pitThisLap = d.pit_laps.indexOf(lap) !== -1;
       var pitLoss = 0;
-      if (pitThisLap){ pitLoss = pitStopTimeLoss(rng); lapTime += pitLoss; }
+      if (pitThisLap){ pitLoss = pitStopTimeLoss(rng, circuit); lapTime += pitLoss; }
 
-      if (rng.random() < incidentProbability(d, weather, tire, inTraffic, attemptingOvertake)){
+      if (rng.random() < incidentProbability(d, weather, tire, attemptingOvertake, circuit, crowd)){
         d.dnf = true;
         d.dnf_lap = lap;
         d.dnf_reason = rollDnfReason(rng, inTraffic, attemptingOvertake);
@@ -1595,7 +1753,7 @@ function titleCase(s){ return s.replace(/\b\w/g, function(c){ return c.toUpperCa
 
 // Runs qualifying + the race for a set of driver configs and assembles the
 // exact same JSON shape simulation.py exports.
-function jsRunSimulation(driverConfigs, weather, rng){
+function jsRunSimulation(driverConfigs, weather, circuit, rng){
   var drivers = driverConfigs.map(function(cfg, i){
     return {
       driver_id: i, name: cfg.name, color: cfg.color, color_hex: cfg.color_hex,
@@ -1610,7 +1768,7 @@ function jsRunSimulation(driverConfigs, weather, rng){
   });
 
   var preRaceWeather = { track_state: weather.track_state, temperature: weather.temperature };
-  var raceOut = jsRunRace(drivers, weather, rng);
+  var raceOut = jsRunRace(drivers, weather, circuit, rng);
   var classified = raceOut.classified;
 
   var laps = [];
@@ -1653,6 +1811,7 @@ function jsRunSimulation(driverConfigs, weather, rng){
 
   return {
     num_laps: CFG.NUM_LAPS,
+    circuit: circuit,
     weather: preRaceWeather,
     weather_timeline: raceOut.weatherTimeline,
     drivers: drivers.map(function(d){
@@ -1762,10 +1921,10 @@ var PALETTE = [
 ];
 var AGGRESSION_LABELS = ["Conservative", "Cautious", "Balanced", "Assertive", "Aggressive"];
 
-var wizard = { step: 'setup', numDrivers: 8, seed: null, weather: null, rng: null, driverIndex: 0, drivers: [] };
+var wizard = { step: 'setup', numDrivers: 8, seed: null, circuit: null, weather: null, rng: null, driverIndex: 0, drivers: [] };
 
 function resetWizard(){
-  wizard = { step: 'setup', numDrivers: 8, seed: null, weather: null, rng: null, driverIndex: 0, drivers: [] };
+  wizard = { step: 'setup', numDrivers: 8, seed: null, circuit: null, weather: null, rng: null, driverIndex: 0, drivers: [] };
   renderWizard();
 }
 
@@ -1846,6 +2005,7 @@ function wireSetupStep(){
     wizard.numDrivers = n;
     wizard.seed = seedRaw === '' ? null : seedRaw;
     wizard.rng = makeRng(seed);
+    wizard.circuit = rollCircuit(wizard.rng);
     wizard.weather = rollWeather(wizard.rng);
     wizard.drivers = [];
     wizard.driverIndex = 0;
@@ -1856,9 +2016,17 @@ function wireSetupStep(){
 
 function wizardWeatherHtml(){
   var w = wizard.weather;
+  var c = wizard.circuit;
   return '' +
     '<p class="wizard-eyebrow">Step 2 of 3 &middot; Revealed to everyone before picks</p>' +
-    '<h2>Conditions are set</h2>' +
+    '<h2>' + escapeHtml(c.name) + '</h2>' +
+    '<p class="hint">' + escapeHtml(c.description) + '</p>' +
+    '<div class="choice-group" style="margin-bottom:20px;">' +
+      '<span class="chip">Tire wear ' + c.deg_multiplier.toFixed(2) + 'x</span>' +
+      '<span class="chip">Overtaking ' + c.overtake_difficulty.toFixed(2) + 'x</span>' +
+      '<span class="chip">Crash risk ' + c.crash_rate_multiplier.toFixed(2) + 'x</span>' +
+      '<span class="chip">Pit lane +' + c.pit_loss_bonus.toFixed(1) + 's</span>' +
+    '</div>' +
     '<div class="weather-reveal"><div class="track-state ' + w.track_state + '">' + w.track_state.toUpperCase() + '</div>' +
       '<div class="track-temp">' + w.temperature + ' temperature</div></div>' +
     '<p class="hint">Track state can still shift a little lap-to-lap once the race starts &mdash; plan tire picks knowing conditions might evolve.</p>' +
@@ -1948,7 +2116,7 @@ function runWizardSimulation(){
   body.innerHTML = '<p class="wizard-eyebrow">Simulating&hellip;</p><h2>Running qualifying + the race</h2>' +
     '<p class="hint">One moment.</p>';
   setTimeout(function(){
-    var result = jsRunSimulation(wizard.drivers, wizard.weather, wizard.rng);
+    var result = jsRunSimulation(wizard.drivers, wizard.weather, wizard.circuit, wizard.rng);
     var label = 'Live draft (' + wizard.drivers.length + ' cars)' + (wizard.seed ? ', seed "' + wizard.seed + '"' : '');
     playing = false;
     loadRace(result, label);

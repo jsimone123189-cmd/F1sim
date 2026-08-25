@@ -172,12 +172,26 @@ function rosterHtml(getMeta){
   return html;
 }
 
+function circuitRevealHtml(circuit){
+  if (!circuit) return '';
+  return '<div class="panel" style="margin-bottom:16px;"><div class="card-body">' +
+    '<p class="eyebrow">Track</p><h2 style="margin-top:0;">' + escapeHtml(circuit.name) + '</h2>' +
+    '<p class="hint">' + escapeHtml(circuit.description) + '</p>' +
+    '<div class="choice-group">' +
+      '<span class="chip">Tire wear ' + circuit.deg_multiplier.toFixed(2) + 'x</span>' +
+      '<span class="chip">Overtaking ' + circuit.overtake_difficulty.toFixed(2) + 'x</span>' +
+      '<span class="chip">Crash risk ' + circuit.crash_rate_multiplier.toFixed(2) + 'x</span>' +
+      '<span class="chip">Pit lane +' + circuit.pit_loss_bonus.toFixed(1) + 's</span>' +
+    '</div></div></div>';
+}
+
 function renderPicksQuali(){
   var w = room.quali_weather;
   var slot = mySlot();
   var claimedCount = room.slots.filter(function(s){ return s.claimedBy; }).length;
 
-  var html = '<div class="weather-reveal"><div class="track-state ' + w.track_state + '">' + w.track_state.toUpperCase() + '</div>' +
+  var html = circuitRevealHtml(room.circuit);
+  html += '<div class="weather-reveal"><div class="track-state ' + w.track_state + '">' + w.track_state.toUpperCase() + '</div>' +
     '<div class="track-temp">' + w.temperature + ' temperature &middot; revealed to everyone before picks</div></div>';
 
   html += '<div class="race-grid">';
@@ -285,6 +299,7 @@ function renderPicksRace(){
   });
   html += '</tbody></table></div></div>';
 
+  html += circuitRevealHtml(room.circuit);
   html += '<div class="weather-reveal"><div class="track-state ' + rw.track_state + '">' + rw.track_state.toUpperCase() + '</div>' +
     '<div class="track-temp">' + rw.temperature + ' temperature &middot; fresh conditions for the race</div></div>';
 
@@ -355,7 +370,7 @@ function renderRaceShell(){
   return '' +
     '<div class="race-grid">' +
       '<div class="panel">' +
-        '<div class="panel-head"><span>Track</span><span class="count">LAP <span id="lap-now">0</span>/<span id="lap-total">20</span> &middot; <span id="race-weather-chip"></span> &middot; <span id="track-status">racing</span></span></div>' +
+        '<div class="panel-head"><span id="circuit-name-chip">Track</span><span class="count">LAP <span id="lap-now">0</span>/<span id="lap-total">20</span> &middot; <span id="race-weather-chip"></span> &middot; <span id="track-status">racing</span></span></div>' +
         '<div class="track-wrap"><canvas id="track" width="900" height="520" role="img" aria-label="Animated top-down view of cars racing around the track"></canvas></div>' +
         '<div class="controls">' +
           '<button class="play-btn" id="play-btn" aria-label="Play">&#9654;</button>' +
@@ -402,32 +417,82 @@ var ctx = null;
 function fmtTime(t){ return t == null ? "--" : t.toFixed(1) + "s"; }
 function fmtGap(g){ return g == null ? "--" : "+" + g.toFixed(2) + "s"; }
 
-var TRACK = { cx: 450, cy: 260, halfLen: 260, r: 150 };
+// Track geometry -- a real closed circuit shape, procedurally generated
+// from the room's rolled circuit.shape (a base ellipse perturbed by
+// cosine harmonics, same formula as engine.py/engine.js). Sampled to a
+// constant-speed (arc-length) lookup; see viz/index.html for the fuller
+// explanation, this is a straight port.
+var DEFAULT_TRACK_SHAPE = { rx: 230, ry: 170, terms: [{k:3,amp:0.09,phase:0.6},{k:5,amp:0.05,phase:2.0}] };
+var TRACK = null; // built by buildTrackGeometry() once per race mount
 
-function trackPoint(f){
+function shapeRawPoint(shape, theta){
+  var scale = 1;
+  shape.terms.forEach(function(t){ scale += t.amp * Math.cos(t.k * theta + t.phase); });
+  return { x: shape.rx * scale * Math.cos(theta), y: shape.ry * scale * Math.sin(theta) };
+}
+
+function buildTrackGeometry(shape){
+  var N = 720;
+  var raw = [];
+  for (var i = 0; i <= N; i++) raw.push(shapeRawPoint(shape, (i / N) * Math.PI * 2));
+
+  var minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+  raw.forEach(function(p){
+    if (p.x<minX) minX=p.x; if (p.x>maxX) maxX=p.x;
+    if (p.y<minY) minY=p.y; if (p.y>maxY) maxY=p.y;
+  });
+
+  var band = 40;
+  var margin = 56;
+  var availW = canvas.width - margin*2, availH = canvas.height - margin*2;
+  var scale = Math.min(availW / (maxX-minX), availH / (maxY-minY));
+  var cx = canvas.width/2 - ((minX+maxX)/2) * scale;
+  var cy = canvas.height/2 - ((minY+maxY)/2) * scale;
+
+  var cum = [0];
+  for (var j = 1; j <= N; j++){
+    var dx = raw[j].x - raw[j-1].x, dy = raw[j].y - raw[j-1].y;
+    cum.push(cum[j-1] + Math.sqrt(dx*dx + dy*dy));
+  }
+
+  TRACK = { raw: raw, cum: cum, totalLen: cum[N], scale: scale, cx: cx, cy: cy, band: band, N: N };
+}
+
+function rawAtFraction(f){
   f = ((f % 1) + 1) % 1;
-  var straight = TRACK.halfLen * 2;
-  var arc = Math.PI * TRACK.r;
-  var total = 2 * straight + 2 * arc;
-  var d = f * total;
+  var target = f * TRACK.totalLen;
+  var cum = TRACK.cum, lo = 0, hi = TRACK.N;
+  while (lo < hi){
+    var mid = (lo + hi) >> 1;
+    if (cum[mid] < target) lo = mid + 1; else hi = mid;
+  }
+  var i1 = Math.max(1, lo), i0 = i1 - 1;
+  var span = cum[i1] - cum[i0];
+  var t = span > 0 ? (target - cum[i0]) / span : 0;
+  var a = TRACK.raw[i0], b = TRACK.raw[i1];
+  return { x: a.x + (b.x-a.x)*t, y: a.y + (b.y-a.y)*t };
+}
 
-  if (d < straight){
-    var x = TRACK.cx - TRACK.halfLen + d;
-    return { x: x, y: TRACK.cy - TRACK.r, angle: 0 };
-  }
-  d -= straight;
-  if (d < arc){
-    var a = -Math.PI/2 + (d / arc) * Math.PI;
-    return { x: TRACK.cx + TRACK.halfLen + TRACK.r * Math.cos(a), y: TRACK.cy + TRACK.r * Math.sin(a), angle: a + Math.PI/2 };
-  }
-  d -= arc;
-  if (d < straight){
-    var x2 = TRACK.cx + TRACK.halfLen - d;
-    return { x: x2, y: TRACK.cy + TRACK.r, angle: Math.PI };
-  }
-  d -= straight;
-  var a2 = Math.PI/2 + (d / arc) * Math.PI;
-  return { x: TRACK.cx - TRACK.halfLen + TRACK.r * Math.cos(a2), y: TRACK.cy + TRACK.r * Math.sin(a2), angle: a2 + Math.PI/2 };
+function trackPoint(f, offsetPx){
+  var eps = 0.0015;
+  var p0 = rawAtFraction(f - eps), p1 = rawAtFraction(f + eps), p = rawAtFraction(f);
+  var tx = p1.x - p0.x, ty = p1.y - p0.y;
+  var tlen = Math.sqrt(tx*tx + ty*ty) || 1;
+  tx /= tlen; ty /= tlen;
+  var nx = ty, ny = -tx;
+  if (p.x*nx + p.y*ny < 0){ nx = -nx; ny = -ny; }
+  var off = offsetPx || 0;
+  return {
+    x: TRACK.cx + p.x*TRACK.scale + nx*off,
+    y: TRACK.cy + p.y*TRACK.scale + ny*off,
+    angle: Math.atan2(ty, tx)
+  };
+}
+
+function pathThroughPoints(pts){
+  ctx.beginPath();
+  pts.forEach(function(p, i){ if (i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); });
+  ctx.closePath();
 }
 
 function drawTrack(){
@@ -435,75 +500,99 @@ function drawTrack(){
   ctx.clearRect(0,0,w,h);
 
   var styles = getComputedStyle(document.documentElement);
+  var bg = styles.getPropertyValue('--bg').trim() || '#0a0d12';
   var trackSurface = styles.getPropertyValue('--track-surface').trim() || '#1a2029';
   var trackLine = styles.getPropertyValue('--track-line').trim() || '#333d4f';
 
-  ctx.fillStyle = trackSurface;
+  ctx.fillStyle = bg;
   ctx.fillRect(0,0,w,h);
 
-  var band = 34;
-  [TRACK.r + band/2, TRACK.r - band/2].forEach(function(r, idx){
-    ctx.beginPath();
-    for (var i=0;i<=400;i++){
-      var f = i/400;
-      var p = trackPointAtRadius(f, r);
-      if (i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y);
-    }
-    ctx.closePath();
-    ctx.strokeStyle = trackLine;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  });
+  var half = TRACK.band/2, M = 300;
+  var outerPts = [], innerPts = [];
+  for (var i=0;i<=M;i++){
+    var f = i/M;
+    outerPts.push(trackPoint(f, half));
+    innerPts.push(trackPoint(f, -half));
+  }
 
-  drawCurbs(band);
+  pathThroughPoints(innerPts);
+  ctx.fillStyle = shadeColor(bg, 14);
+  ctx.fill();
+
+  ctx.beginPath();
+  outerPts.forEach(function(p,i){ if (i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); });
+  ctx.closePath();
+  innerPts.forEach(function(p,i){ if (i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); });
+  ctx.closePath();
+  ctx.fillStyle = trackSurface;
+  ctx.fill('evenodd');
+
+  ctx.strokeStyle = trackLine;
+  ctx.lineWidth = 2;
+  pathThroughPoints(outerPts); ctx.stroke();
+  pathThroughPoints(innerPts); ctx.stroke();
+
+  drawCurbs(half);
 
   var sf = trackPoint(0);
   ctx.save();
   ctx.translate(sf.x, sf.y);
   ctx.rotate(sf.angle);
   var stripDepth = 6, rows = 2, cols = 6;
-  var cellW = stripDepth/cols, cellH = band/rows;
+  var cellW = stripDepth/cols, cellH = TRACK.band/rows;
   for (var row=0; row<rows; row++){
     for (var col=0; col<cols; col++){
       ctx.fillStyle = ((row+col)%2===0) ? '#e8ecf0' : '#1a1f27';
-      ctx.fillRect(-stripDepth/2 + col*cellW, -band/2 + row*cellH, cellW, cellH);
+      ctx.fillRect(-stripDepth/2 + col*cellW, -TRACK.band/2 + row*cellH, cellW, cellH);
     }
   }
   ctx.restore();
 }
 
-// Alternating red/white kerb blocks along the outer edge of both corners
-// (the semicircle sections of the stadium loop), like real track kerbing.
-function drawCurbs(band){
-  var outerR = TRACK.r + band/2;
-  var straight = TRACK.halfLen * 2;
-  var arc = Math.PI * TRACK.r;
-  var total = 2*straight + 2*arc;
-  var ranges = [
-    [straight/total, (straight+arc)/total],
-    [(2*straight+arc)/total, 1]
-  ];
-  ranges.forEach(function(range){
-    var f0 = range[0], f1 = range[1], n = 26;
-    for (var i=0;i<n;i++){
-      var fa = f0 + (f1-f0)*i/n, fb = f0 + (f1-f0)*(i+1)/n;
-      var pa1 = trackPointAtRadius(fa, outerR+0.5), pa2 = trackPointAtRadius(fa, outerR+5);
-      var pb1 = trackPointAtRadius(fb, outerR+0.5), pb2 = trackPointAtRadius(fb, outerR+5);
+// Alternating red/white kerb blocks, auto-placed by curvature (the
+// highest-curvature third or so of the lap) instead of a hardcoded
+// corner list -- works for any of this circuit's harmonic shapes.
+function drawCurbs(half){
+  var M = 300;
+  var angles = [];
+  for (var i=0;i<M;i++) angles.push(trackPoint(i/M).angle);
+  var curv = [];
+  for (var i=0;i<M;i++){
+    var a0 = angles[(i-1+M)%M], a1 = angles[(i+1)%M];
+    curv.push(Math.abs(Math.atan2(Math.sin(a1-a0), Math.cos(a1-a0))));
+  }
+
+  var sorted = curv.slice().sort(function(a,b){ return b-a; });
+  var threshold = sorted[Math.floor(M*0.35)];
+
+  var minIdx = 0, minVal = Infinity;
+  for (var i=0;i<M;i++){ if (curv[i] < minVal){ minVal = curv[i]; minIdx = i; } }
+
+  var runs = [], curRun = null;
+  for (var j=0;j<M;j++){
+    var idx = (minIdx + j) % M;
+    if (curv[idx] >= threshold){
+      if (!curRun) curRun = { start: j, end: j }; else curRun.end = j;
+    } else if (curRun){ runs.push(curRun); curRun = null; }
+  }
+  if (curRun) runs.push(curRun);
+
+  runs.forEach(function(run){
+    var count = run.end - run.start + 1;
+    if (count < 5) return;
+    var n = Math.max(6, Math.round(count/2));
+    for (var k=0;k<n;k++){
+      var ga = run.start + (count*k)/n, gb = run.start + (count*(k+1))/n;
+      var fa = ((minIdx+ga) % M) / M, fb = ((minIdx+gb) % M) / M;
+      var pa1 = trackPoint(fa, half+0.5), pa2 = trackPoint(fa, half+7);
+      var pb1 = trackPoint(fb, half+0.5), pb2 = trackPoint(fb, half+7);
       ctx.beginPath();
       ctx.moveTo(pa1.x,pa1.y); ctx.lineTo(pa2.x,pa2.y); ctx.lineTo(pb2.x,pb2.y); ctx.lineTo(pb1.x,pb1.y);
       ctx.closePath();
-      ctx.fillStyle = (i%2===0) ? '#c0392b' : '#e8ecf0';
+      ctx.fillStyle = (k%2===0) ? '#c0392b' : '#e8ecf0';
       ctx.fill();
     }
   });
-}
-
-function trackPointAtRadius(f, rOverride){
-  var save = TRACK.r;
-  TRACK.r = rOverride;
-  var p = trackPoint(f);
-  TRACK.r = save;
-  return p;
 }
 
 function stateAt(driverId, t){
@@ -643,22 +732,25 @@ function carBodyPath(L, W){
   ctx.closePath();
 }
 
+var CAR_SCALE = 1.4; // bumped up so cars read clearly at a glance
+
 function drawCarSprite(x, y, angle, colorHex, dnf){
   var L = 21, W = 8;
 
   if (!dnf){
-    var shadow = ctx.createRadialGradient(x, y+1.5, 0, x, y+1.5, 10);
+    var shadow = ctx.createRadialGradient(x, y+1.5*CAR_SCALE, 0, x, y+1.5*CAR_SCALE, 10*CAR_SCALE);
     shadow.addColorStop(0, 'rgba(0,0,0,0.32)');
     shadow.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = shadow;
     ctx.beginPath();
-    ctx.ellipse(x, y+1.5, 10, 6.5, 0, 0, Math.PI*2);
+    ctx.ellipse(x, y+1.5*CAR_SCALE, 10*CAR_SCALE, 6.5*CAR_SCALE, 0, 0, Math.PI*2);
     ctx.fill();
   }
 
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
+  ctx.scale(CAR_SCALE, CAR_SCALE);
   ctx.globalAlpha = dnf ? 0.5 : 1;
 
   var bodyColor = dnf ? '#4a5265' : colorHex;
@@ -717,6 +809,12 @@ function drawCarSprite(x, y, angle, colorHex, dnf){
 function setRaceWeatherChip(w){
   var el = document.getElementById('race-weather-chip');
   if (el) el.textContent = w.track_state + ' / ' + w.temperature;
+}
+function setCircuitLabel(circuit){
+  var el = document.getElementById('circuit-name-chip');
+  if (!el) return;
+  el.textContent = circuit ? circuit.name : 'Track';
+  if (circuit) el.title = circuit.description || '';
 }
 function weatherAt(t){
   if (!raceData.weather_timeline || !raceData.weather_timeline.length) return raceData.weather;
@@ -913,11 +1011,13 @@ function mountRace(data){
   laneOffset = {};
   data.drivers.forEach(function(d, i){
     trailHistory[d.driver_id] = [];
-    laneOffset[d.driver_id] = ((i % 5) - 2) * 4.5;
+    laneOffset[d.driver_id] = ((i % 5) - 2) * 6;
   });
 
   canvas = document.getElementById('track');
   ctx = canvas.getContext('2d');
+  buildTrackGeometry((data.circuit && data.circuit.shape) ? data.circuit.shape : DEFAULT_TRACK_SHAPE);
+  setCircuitLabel(data.circuit);
 
   buildDraftBoardShell();
 

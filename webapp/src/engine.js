@@ -26,7 +26,10 @@ export const CFG = {
   TRAFFIC_GAP_THRESHOLD: 0.5,
   TRAFFIC_PENALTY: 0.08,
   WEATHER_EVOLVE_CHANCE: 0.03,
-  DRAFT_ORDER_REVERSED: false
+  DRAFT_ORDER_REVERSED: false,
+  NEIGHBOR_DANGER_WINDOW: 1.2,
+  AGGRESSION_RISK_RATE: 0.0005,
+  AMBIENT_DANGER_RATE: 0.0008
 };
 
 export const COMPOUNDS = ['Soft', 'Medium', 'Hard', 'Wet'];
@@ -38,6 +41,34 @@ export const TIRES = {
 };
 export const TRACK_STATES = ['Dry', 'Damp', 'Wet'];
 export const TEMPS = ['Cold', 'Mild', 'Hot'];
+
+// Circuit layouts -- kept in exact sync with engine.py's CIRCUITS and the
+// copy embedded in ../../viz/index.html. `shape` drives the renderer (a
+// base ellipse perturbed by cosine harmonics); the rest are gameplay
+// attributes giving each circuit real strategic identity.
+export const CIRCUITS = [
+  { id: 'sable-bay', name: 'Sable Bay Circuit',
+    description: 'Long straights and sweeping bends -- low deg, easy to pass, punishing at speed.',
+    deg_multiplier: 0.85, overtake_difficulty: 0.65, crash_rate_multiplier: 1.1, pit_loss_bonus: 0.0,
+    shape: { rx: 260, ry: 150, terms: [{k:2,amp:0.10,phase:0.3},{k:3,amp:0.06,phase:1.8}] } },
+  { id: 'verdant-ridge', name: 'Verdant Ridge Hillclimb',
+    description: 'Constant direction changes -- technical, hard on tires, very hard to pass.',
+    deg_multiplier: 1.25, overtake_difficulty: 1.3, crash_rate_multiplier: 1.0, pit_loss_bonus: 0.2,
+    shape: { rx: 190, ry: 160, terms: [{k:5,amp:0.14,phase:0.4},{k:7,amp:0.08,phase:2.1},{k:2,amp:0.05,phase:1.0}] } },
+  { id: 'iron-harbor', name: 'Iron Harbor Street Circuit',
+    description: 'Tight street course, walls close in -- brutal on mistakes, brutal to overtake.',
+    deg_multiplier: 1.0, overtake_difficulty: 1.6, crash_rate_multiplier: 1.5, pit_loss_bonus: 0.4,
+    shape: { rx: 150, ry: 120, terms: [{k:4,amp:0.16,phase:0.9},{k:6,amp:0.10,phase:2.5}] } },
+  { id: 'sunspire', name: 'Sunspire Speedway',
+    description: 'Elongated high-speed bowl with a couple of chicanes -- fast, tires take a beating.',
+    deg_multiplier: 1.1, overtake_difficulty: 0.75, crash_rate_multiplier: 1.05, pit_loss_bonus: 0.0,
+    shape: { rx: 280, ry: 110, terms: [{k:2,amp:0.06,phase:0.0},{k:8,amp:0.03,phase:1.2}] } },
+  { id: 'northgate', name: 'Northgate Endurance Circuit',
+    description: 'A balanced, flowing all-rounder -- no extreme strengths or weaknesses.',
+    deg_multiplier: 1.0, overtake_difficulty: 1.0, crash_rate_multiplier: 1.0, pit_loss_bonus: 0.1,
+    shape: { rx: 230, ry: 170, terms: [{k:3,amp:0.09,phase:0.6},{k:5,amp:0.05,phase:2.0}] } }
+];
+export function rollCircuit(rng){ return CIRCUITS[Math.floor(rng.random() * CIRCUITS.length)]; }
 const TRAFFIC_DNF_REASONS = ['Collision', 'Spin', 'Loss of control', 'Mechanical failure'];
 const TRAFFIC_DNF_WEIGHTS = [50, 25, 15, 10];
 const BASE_DNF_REASONS = ['Mechanical failure', 'Spin', 'Loss of control', 'Collision'];
@@ -137,16 +168,34 @@ function planPitLaps(numStops, rng){
   lap2 = Math.max(lap1 + 3, Math.min(CFG.NUM_LAPS - 2, lap2));
   return [lap1, lap2];
 }
-function pitStopTimeLoss(rng){
-  let loss = rng.uniform(CFG.PIT_STOP_BASE_MIN, CFG.PIT_STOP_BASE_MAX);
+function pitStopTimeLoss(rng, circuit){
+  let loss = rng.uniform(CFG.PIT_STOP_BASE_MIN, CFG.PIT_STOP_BASE_MAX) + circuit.pit_loss_bonus;
   if (rng.random() < CFG.PIT_STOP_SLOW_CHANCE) loss += rng.uniform(CFG.PIT_STOP_SLOW_EXTRA_MIN, CFG.PIT_STOP_SLOW_EXTRA_MAX);
   return loss;
 }
-function incidentProbability(driver, weather, tire, inTraffic, attemptingOvertake){
-  let p = CFG.BASE_MECHANICAL_RATE + 0.0005 * driver.aggression;
-  p += (1 - effectiveGrip(weather.track_state, tire)) * 0.004;
-  if (inTraffic) p += 0.0015;
-  if (attemptingOvertake) p += 0.002 + 0.001 * driver.aggression;
+// How boxed-in a driver is this lap, weighted by how aggressive the cars
+// right around them are -- not just whether someone is nearby. 0 = clean
+// air; up to ~2.0 = squeezed between two max-aggression rivals both within
+// the danger window.
+export function crowdedness(gapAhead, aheadAggression, gapBehind, behindAggression){
+  let total = 0;
+  if (gapAhead != null && gapAhead < CFG.NEIGHBOR_DANGER_WINDOW){
+    const closenessA = 1 - gapAhead / CFG.NEIGHBOR_DANGER_WINDOW;
+    total += closenessA * (0.4 + 0.6 * aheadAggression / 5);
+  }
+  if (gapBehind != null && gapBehind < CFG.NEIGHBOR_DANGER_WINDOW){
+    const closenessB = 1 - gapBehind / CFG.NEIGHBOR_DANGER_WINDOW;
+    total += closenessB * (0.4 + 0.6 * behindAggression / 5);
+  }
+  return total;
+}
+function incidentProbability(driver, weather, tire, attemptingOvertake, circuit, crowd){
+  const grip = effectiveGrip(weather.track_state, tire);
+  let p = CFG.BASE_MECHANICAL_RATE * circuit.crash_rate_multiplier;
+  p += (1 - grip) * 0.004 * circuit.crash_rate_multiplier;
+  p += CFG.AMBIENT_DANGER_RATE * crowd;
+  p += CFG.AGGRESSION_RISK_RATE * driver.aggression * (1 + crowd);
+  if (attemptingOvertake) p += (0.002 + 0.001 * driver.aggression) * circuit.overtake_difficulty;
   return p;
 }
 function rollDnfReason(rng, inTraffic, attemptingOvertake){
@@ -156,7 +205,7 @@ function rollDnfReason(rng, inTraffic, attemptingOvertake){
 
 // Mutates each driver in place (pit_laps, total_time, dnf*, lap_log) and
 // returns { classified, weatherTimeline, weatherEvents }.
-export function jsRunRace(drivers, weather, rng){
+export function jsRunRace(drivers, weather, circuit, rng){
   drivers.forEach((d) => {
     d.pit_laps = planPitLaps(d.num_stops, rng);
     d.current_stint_index = 0;
@@ -175,10 +224,19 @@ export function jsRunRace(drivers, weather, rng){
     if (changed) weatherEvents.push({ lap, driver_id: null, type: 'WEATHER', detail: 'Track now ' + weather.track_state });
 
     const active = drivers.filter((d) => !d.dnf);
+    // Each driver gets both neighbors (not just the one ahead) so crash
+    // risk can reflect who's actually racing around them this lap.
     const runningOrder = active.slice().sort((a, b) => a.total_time - b.total_time);
-    const gapAhead = {};
+    const neighbors = {};
     runningOrder.forEach((d, i) => {
-      gapAhead[d.driver_id] = i === 0 ? null : d.total_time - runningOrder[i - 1].total_time;
+      const ahead = i > 0 ? runningOrder[i - 1] : null;
+      const behind = i + 1 < runningOrder.length ? runningOrder[i + 1] : null;
+      neighbors[d.driver_id] = {
+        gapAhead: ahead ? d.total_time - ahead.total_time : null,
+        aheadAgg: ahead ? ahead.aggression : null,
+        gapBehind: behind ? behind.total_time - d.total_time : null,
+        behindAgg: behind ? behind.aggression : null
+      };
     });
 
     active.forEach((d) => {
@@ -187,22 +245,26 @@ export function jsRunRace(drivers, weather, rng){
       const tire = TIRES[compoundName];
 
       const gripPenalty = (1 - effectiveGrip(weather.track_state, tire)) * CFG.GRIP_PENALTY_FACTOR;
-      const degPenalty = tire.deg * heatMultiplier(weather.temperature, tire) * (1 + 0.08 * d.aggression) *
+      const degPenalty = tire.deg * circuit.deg_multiplier * heatMultiplier(weather.temperature, tire) * (1 + 0.08 * d.aggression) *
         Math.pow(d.laps_on_current_tire, 1.15);
 
-      const gap = gapAhead[d.driver_id];
+      const nb = neighbors[d.driver_id];
+      const gap = nb.gapAhead;
       const inTraffic = gap != null && gap < CFG.TRAFFIC_GAP_THRESHOLD;
+      const crowd = crowdedness(nb.gapAhead, nb.aheadAgg, nb.gapBehind, nb.behindAgg);
       let attemptingOvertake = false;
       let trafficPenalty = 0;
       let overtakeNote = null;
 
       if (inTraffic){
-        attemptingOvertake = rng.random() < (0.15 + 0.10 * d.aggression);
+        const attemptProb = Math.min(0.9, (0.15 + 0.10 * d.aggression) / circuit.overtake_difficulty);
+        attemptingOvertake = rng.random() < attemptProb;
         if (attemptingOvertake){
-          if (rng.random() < (0.4 + 0.05 * d.aggression)){ overtakeNote = 'overtake_success'; }
-          else { trafficPenalty = CFG.TRAFFIC_PENALTY; overtakeNote = 'overtake_failed'; }
+          const successProb = Math.min(0.9, (0.4 + 0.05 * d.aggression) / circuit.overtake_difficulty);
+          if (rng.random() < successProb){ overtakeNote = 'overtake_success'; }
+          else { trafficPenalty = CFG.TRAFFIC_PENALTY * circuit.overtake_difficulty; overtakeNote = 'overtake_failed'; }
         } else {
-          trafficPenalty = CFG.TRAFFIC_PENALTY;
+          trafficPenalty = CFG.TRAFFIC_PENALTY * circuit.overtake_difficulty;
         }
       }
 
@@ -211,9 +273,9 @@ export function jsRunRace(drivers, weather, rng){
 
       const pitThisLap = d.pit_laps.indexOf(lap) !== -1;
       let pitLoss = 0;
-      if (pitThisLap){ pitLoss = pitStopTimeLoss(rng); lapTime += pitLoss; }
+      if (pitThisLap){ pitLoss = pitStopTimeLoss(rng, circuit); lapTime += pitLoss; }
 
-      if (rng.random() < incidentProbability(d, weather, tire, inTraffic, attemptingOvertake)){
+      if (rng.random() < incidentProbability(d, weather, tire, attemptingOvertake, circuit, crowd)){
         d.dnf = true;
         d.dnf_lap = lap;
         d.dnf_reason = rollDnfReason(rng, inTraffic, attemptingOvertake);
@@ -251,7 +313,7 @@ function titleCase(s){ return s.replace(/\b\w/g, (c) => c.toUpperCase()); }
 
 // Assembles the same JSON shape simulation.py exports, given drivers that
 // have already been through jsRunQualifying and jsRunRace.
-export function buildResultPayload(drivers, qualiWeather, qualiResults, raceWeather, raceOut){
+export function buildResultPayload(drivers, circuit, qualiWeather, qualiResults, raceWeather, raceOut){
   const classified = raceOut.classified;
 
   const laps = [];
@@ -294,6 +356,7 @@ export function buildResultPayload(drivers, qualiWeather, qualiResults, raceWeat
 
   return {
     num_laps: CFG.NUM_LAPS,
+    circuit,
     quali_weather: qualiWeather,
     weather: raceWeather,
     weather_timeline: raceOut.weatherTimeline,

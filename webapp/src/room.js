@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
-  COMPOUNDS, makeRng, randomSeed, rollWeather,
+  COMPOUNDS, makeRng, randomSeed, rollWeather, rollCircuit,
   jsRunQualifying, jsRunRace, buildResultPayload, round3
 } from './engine.js';
 
@@ -56,6 +56,7 @@ export class LeagueRoom extends DurableObject {
     if (this.room) return this.publicView();
 
     const rng = makeRng(randomSeed());
+    const circuit = rollCircuit(rng);
     const qualiWeather = rollWeather(rng);
     const palette = PALETTE.slice(0, numCars);
 
@@ -66,6 +67,7 @@ export class LeagueRoom extends DurableObject {
       commissionerId: null,
       numCars,
       phase: 'picks_quali', // picks_quali -> picks_race -> race_done
+      circuit,
       quali_weather: qualiWeather,
       slots: palette.map((p, i) => ({
         slot: i,
@@ -255,9 +257,9 @@ export class LeagueRoom extends DurableObject {
       aggression: s.aggression, num_stops: s.num_stops, quali_compound: s.quali_compound,
       race_compounds: s.race_compounds.slice()
     }));
-    const raceOut = jsRunRace(drivers, weather, rng);
+    const raceOut = jsRunRace(drivers, weather, this.room.circuit, rng);
     this.room.final_result = buildResultPayload(
-      drivers, this.room.quali_weather, this.room.quali_result.results, this.room.race_weather, raceOut
+      drivers, this.room.circuit, this.room.quali_weather, this.room.quali_result.results, this.room.race_weather, raceOut
     );
     this.room.phase = 'race_done';
   }

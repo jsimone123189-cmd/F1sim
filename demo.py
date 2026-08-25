@@ -13,7 +13,7 @@ import argparse
 import random
 import sys
 
-from engine import Compound, Driver, Weather, COLOR_PALETTE
+from engine import Compound, Driver, Weather, Circuit, COLOR_PALETTE, roll_circuit
 from simulation import build_driver, export_json, run_simulation
 
 COMPOUND_LIST = list(Compound)
@@ -102,8 +102,15 @@ def make_interactive_drivers(num_cars: int, rng: random.Random) -> list[Driver]:
 # Output
 # ---------------------------------------------------------------------------
 
+def print_circuit(circuit: Circuit):
+    print(f"\n=== TRACK: {circuit.name} ===")
+    print(circuit.description)
+    print(f"Tire wear: {circuit.deg_multiplier:.2f}x   Overtaking difficulty: {circuit.overtake_difficulty:.2f}x   "
+          f"Crash risk: {circuit.crash_rate_multiplier:.2f}x   Pit lane loss: +{circuit.pit_loss_bonus:.1f}s\n")
+
+
 def print_weather(weather: Weather):
-    print("\n=== WEATHER ===")
+    print("=== WEATHER ===")
     print(f"Track: {weather.track_state.value}   Temperature: {weather.temperature.value}")
     print("(track state can shift lap-to-lap during the race -- plan accordingly)\n")
 
@@ -178,13 +185,15 @@ def main():
 
     rng = random.Random(args.seed)
 
-    # Weather is rolled and revealed before anyone picks a strategy.
+    # Track and weather are rolled and revealed before anyone picks a strategy.
+    circuit = roll_circuit(rng)
     weather = Weather.roll(rng)
+    print_circuit(circuit)
     print_weather(weather)
 
     drivers = make_random_drivers(num_cars, rng) if use_random else make_interactive_drivers(num_cars, rng)
 
-    sim_result = run_simulation(drivers, weather, rng)
+    sim_result = run_simulation(drivers, weather, circuit, rng)
 
     quali_order = sorted(drivers, key=lambda d: d.grid_position)
     print_quali_results(quali_order)

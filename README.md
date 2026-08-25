@@ -117,6 +117,24 @@ output only). On top of that:
    probability (`WEATHER_EVOLVE_CHANCE`); the JSON log's `weather_timeline`
    records what was in effect on every lap, and the replay's weather chip and
    event feed update live as it changes.
+7. **Real circuits with their own strategic identity.** Before each race, a
+   `Circuit` is rolled from `engine.CIRCUITS` (five layouts: Sable Bay,
+   Verdant Ridge, Iron Harbor, Sunspire, Northgate) and revealed alongside
+   weather, before anyone picks a strategy. Each circuit scales tire
+   degradation, overtaking difficulty, crash risk, and pit-lane time loss
+   differently, so the same strategy isn't equally good everywhere (locked
+   in by `test_dnf_rate_varies_by_circuit`). The replay renderers (both
+   `viz/index.html` and the live multiplayer room) draw the circuit's actual
+   shape &mdash; a base ellipse perturbed by cosine harmonics
+   (`circuit.shape`), sampled to a constant-speed loop with curvature-based
+   curb placement &mdash; instead of a generic oval, and the JSON log's
+   `circuit` field records which one it was.
+8. **Crowding affects incident risk, not just your own aggression.**
+   `race.crowdedness()` looks at the gap and aggression of the cars directly
+   ahead and behind; incident probability then scales with *how crowded*
+   you are (an aggressive driver alone at the front is safer than the same
+   driver mid-pack) and gets a small ambient bump from nearby aggressive
+   rivals regardless of your own aggression setting.
 
 It also addresses the three "known things worth revisiting" from the
 prototype's own README:
