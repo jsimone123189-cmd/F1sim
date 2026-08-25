@@ -160,7 +160,15 @@ function tireBtn(compound, selected, extraAttrs){
 }
 var AGGRESSION_LABELS = ["Conservative", "Cautious", "Balanced", "Assertive", "Aggressive"];
 function aggressionLabel(n){ return AGGRESSION_LABELS[n - 1] || 'Balanced'; }
+var AGGRESSION_HINT = "Higher aggression means a faster lap, but it wears your tires out quicker and raises the odds of a mistake or a crash -- especially with rivals close by.";
 var COMPOUNDS = ['Soft', 'Medium', 'Hard', 'Wet'];
+var COMPOUND_HINTS = {
+  Soft: 'Fastest tire, wears out quickest. Best for a short stint or qualifying.',
+  Medium: 'Balanced pace and durability -- a safe all-round pick.',
+  Hard: 'Slowest tire, but lasts the longest. Good for a long stint.',
+  Wet: 'Built for a wet track. Much slower than the others if it stays dry.'
+};
+var PIT_STRATEGY_HINT = 'Fewer stops means more time spent on aging, slower tires between them. More stops means fresher tires more often, but each stop itself costs time in the pit lane.';
 
 function rosterHtml(getMeta){
   var html = '<ol class="roster">';
@@ -212,9 +220,11 @@ function renderPicksQuali(){
       '<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;"><span class="swatch" style="width:16px;height:16px;background:' + slot.color_hex + '"></span><h2 style="margin:0;">' + slot.color + ' car</h2></div>' +
       '<div class="field-row"><label for="my-name-input">Name</label><input type="text" id="my-name-input" maxlength="24" value="' + escapeHtml(slot.name) + '"></div>' +
       '<div class="field-row"><label>Aggression</label><div class="agg-row"><input type="range" id="my-agg" min="1" max="5" value="' + slot.aggression + '">' +
-      '<span class="agg-label" id="my-agg-label">' + aggressionLabel(slot.aggression) + '</span></div></div>' +
+      '<span class="agg-label" id="my-agg-label">' + aggressionLabel(slot.aggression) + '</span></div>' +
+      '<p class="strategy-hint">' + AGGRESSION_HINT + '</p></div>' +
       '<div class="field-row"><label>Qualifying tire (this compound locks out of the race)</label><div class="choice-group">' +
-      COMPOUNDS.map(function(c){ return tireBtn(c, slot.quali_compound === c, 'data-quali="' + c + '"'); }).join('') + '</div></div>';
+      COMPOUNDS.map(function(c){ return tireBtn(c, slot.quali_compound === c, 'data-quali="' + c + '"'); }).join('') + '</div>' +
+      '<p class="strategy-hint" id="my-quali-tire-hint">' + COMPOUND_HINTS[slot.quali_compound] + '</p></div>';
   }
   html += '</div></div>';
 
@@ -317,13 +327,17 @@ function renderPicksRace(){
     html += '<p class="eyebrow">Your race strategy</p>' +
       '<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;"><span class="swatch" style="width:16px;height:16px;background:' + slot.color_hex + '"></span><h2 style="margin:0;">' + slot.color + ' car</h2></div>' +
       '<div class="field-row"><label>Aggression</label><div class="agg-row"><input type="range" id="my-race-agg" min="1" max="5" value="' + slot.race_aggression + '">' +
-      '<span class="agg-label" id="my-race-agg-label">' + aggressionLabel(slot.race_aggression) + '</span></div></div>' +
+      '<span class="agg-label" id="my-race-agg-label">' + aggressionLabel(slot.race_aggression) + '</span></div>' +
+      '<p class="strategy-hint">' + AGGRESSION_HINT + '</p></div>' +
       '<p class="hint">' + slot.quali_compound + ' is locked out &mdash; pick from the remaining three compounds.</p>' +
       '<div class="field-row"><label>Pit strategy</label><div class="choice-group">' +
       '<button type="button" class="choice-btn' + (slot.num_stops === 1 ? ' selected' : '') + '" data-stops="1">1-stop</button>' +
       '<button type="button" class="choice-btn' + (slot.num_stops === 2 ? ' selected' : '') + '" data-stops="2">2-stop</button>' +
-      '</div></div>' +
-      '<div class="field-row"><label>Race tires (one per stint, no repeats)</label>' + raceTireRowsHtml(slot) + '</div>';
+      '</div>' +
+      '<p class="strategy-hint">' + PIT_STRATEGY_HINT + '</p></div>' +
+      '<div class="field-row"><label>Race tires (one per stint, no repeats)</label>' + raceTireRowsHtml(slot) +
+      '<p class="strategy-hint">' + slot.race_compounds.filter(function(c, i){ return slot.race_compounds.indexOf(c) === i; })
+        .map(function(c){ return '<strong>' + c + ':</strong> ' + COMPOUND_HINTS[c]; }).join('<br>') + '</p></div>';
   } else {
     html += '<p class="eyebrow">No car</p><h2 style="font-size:1.15rem;">You didn\'t claim a car</h2>' +
       '<p class="hint">Qualifying is already locked in, so this room\'s grid is set. You can still watch.</p>';

@@ -497,6 +497,7 @@
     outline-offset:1px;
   }
   .field-help{font-family:var(--font-mono);font-size:.7rem;color:var(--text-faint);margin-top:6px;}
+  .strategy-hint{font-family:var(--font-body);font-size:.8rem;line-height:1.4;color:var(--text-dim);margin:6px 0 0;}
 
   .wizard-actions{
     display:flex;
@@ -2114,6 +2115,14 @@ var PALETTE = [
   ["Brown","#9A6324"],["Indigo","#4b0082"],["Coral","#ff7f50"],["Olive","#808000"]
 ];
 var AGGRESSION_LABELS = ["Conservative", "Cautious", "Balanced", "Assertive", "Aggressive"];
+var AGGRESSION_HINT = "Higher aggression means a faster lap, but it wears your tires out quicker and raises the odds of a mistake or a crash -- especially with rivals close by.";
+var COMPOUND_HINTS = {
+  Soft: 'Fastest tire, wears out quickest. Best for a short stint or qualifying.',
+  Medium: 'Balanced pace and durability -- a safe all-round pick.',
+  Hard: 'Slowest tire, but lasts the longest. Good for a long stint.',
+  Wet: 'Built for a wet track. Much slower than the others if it stays dry.'
+};
+var PIT_STRATEGY_HINT = 'Fewer stops means more time spent on aging, slower tires between them. More stops means fresher tires more often, but each stop itself costs time in the pit lane.';
 
 var wizard = { step: 'setup', numDrivers: 8, seed: null, circuit: null, weather: null, rng: null, driverIndex: 0, drivers: [] };
 
@@ -2255,16 +2264,21 @@ function wizardDriverHtml(){
     '<div class="field-row"><label for="wz-name">Name</label><input type="text" id="wz-name" value="' + escapeHtml(d.name) + '" maxlength="24"></div>' +
     '<div class="field-row"><label>Aggression</label><div class="agg-row">' +
       '<input type="range" id="wz-agg" min="1" max="5" value="' + d.aggression + '">' +
-      '<span class="agg-label" id="wz-agg-label">' + aggressionLabel(d.aggression) + '</span></div></div>' +
+      '<span class="agg-label" id="wz-agg-label">' + aggressionLabel(d.aggression) + '</span></div>' +
+      '<p class="strategy-hint">' + AGGRESSION_HINT + ' Used for both qualifying and the race.</p></div>' +
     '<div class="field-row"><label>Pit strategy</label><div class="choice-group">' +
       '<button type="button" class="choice-btn' + (d.num_stops === 1 ? ' selected' : '') + '" data-stops="1">1-stop</button>' +
       '<button type="button" class="choice-btn' + (d.num_stops === 2 ? ' selected' : '') + '" data-stops="2">2-stop</button>' +
-    '</div></div>' +
+    '</div>' +
+    '<p class="strategy-hint">' + PIT_STRATEGY_HINT + '</p></div>' +
     '<div class="field-row"><label>Qualifying tire (locks that compound out of the race)</label><div class="choice-group">' +
       COMPOUNDS.map(function(c){ return tireBtn(c, d.quali_compound === c, 'data-quali="' + c + '"'); }).join('') +
-    '</div></div>' +
-    '<div class="field-row"><label>Race tires (one per stint)</label>' + raceTireRowsHtml(d) +
-      '<div class="locked-note">' + d.quali_compound + ' is locked out for the race.</div></div>' +
+    '</div>' +
+    '<p class="strategy-hint">' + COMPOUND_HINTS[d.quali_compound] + '</p></div>' +
+    '<div class="field-row"><label>Race tires (one per stint, no repeats)</label>' + raceTireRowsHtml(d) +
+      '<div class="locked-note">' + d.quali_compound + ' is locked out for the race.</div>' +
+      '<p class="strategy-hint">' + d.race_compounds.filter(function(c, i){ return d.race_compounds.indexOf(c) === i; })
+        .map(function(c){ return '<strong>' + c + ':</strong> ' + COMPOUND_HINTS[c]; }).join('<br>') + '</p></div>' +
     '<div class="wizard-actions">' +
       '<button class="btn btn-ghost" id="wz-driver-back">&larr; Back</button>' +
       '<button class="btn btn-primary" id="wz-driver-next">' + (i + 1 < n ? 'Next driver' : 'Run the race') + ' &rarr;</button>' +
