@@ -409,16 +409,19 @@ function wirePicksRace(){
 }
 
 // ---------------------------------------------------------------------
-// One car on track during the qualifying reveal (picks_race phase, before
-// the tower finishes). Shares the same canvas/ctx/TRACK globals and
-// drawTrack()/drawCarSprite() the race replay uses, just driven by a
-// simple "one lap per driver" clock instead of the race checkpoint data.
+// All not-yet-revealed cars on track at once during the qualifying
+// reveal (picks_race phase, before the tower finishes). Shares the same
+// canvas/ctx/TRACK globals and drawTrack()/drawCarSprite() the race
+// replay uses. Each driver's lap takes longer or shorter than the field
+// average in proportion to their actual quali time, so you can watch
+// who's quicker before their row posts, instead of everyone moving
+// identically.
 // ---------------------------------------------------------------------
 
 var qualiAnimRafId = null;
-var qualiAnimLapStartTs = null;
-var qualiAnimDriverKey = null;
-var QUALI_LAP_MS = 2400;
+var qualiAnimLapStarts = {}; // driver_id -> rAF timestamp their current lap began
+var QUALI_LAP_MS_AVG = 4800; // average car's lap duration; slower/faster cars scale off this
+var QUALI_REVEAL_MS = 4000; // how often a driver's result posts to the list
 
 function mountQualiTrack(){
   var el = document.getElementById('track');
@@ -433,8 +436,7 @@ function mountQualiTrack(){
 
 function stopQualiTrack(){
   if (qualiAnimRafId != null){ cancelAnimationFrame(qualiAnimRafId); qualiAnimRafId = null; }
-  qualiAnimLapStartTs = null;
-  qualiAnimDriverKey = null;
+  qualiAnimLapStarts = {};
 }
 
 function qualiAnimTick(ts){
@@ -442,24 +444,29 @@ function qualiAnimTick(ts){
     qualiAnimRafId = null;
     return;
   }
-  var current = qualiTowerOrder[qualiTowerRevealed.length];
-  if (!current){ qualiAnimRafId = requestAnimationFrame(qualiAnimTick); return; }
-  var key = current.driver_id;
-  if (key !== qualiAnimDriverKey){ qualiAnimDriverKey = key; qualiAnimLapStartTs = ts; }
-
-  var elapsed = ts - qualiAnimLapStartTs;
-  var frac = (elapsed % QUALI_LAP_MS) / QUALI_LAP_MS;
-  var slotById = {};
-  room.slots.forEach(function(s){ slotById[s.slot] = s; });
-  var driverSlot = slotById[key];
+  var revealedIds = {};
+  qualiTowerRevealed.forEach(function(r){ revealedIds[r.driver_id] = true; });
+  var onTrack = qualiTowerOrder.filter(function(r){ return !revealedIds[r.driver_id]; });
 
   drawTrack();
-  if (driverSlot && !reducedMotion){
-    var p = trackPoint(frac);
-    drawCarSprite(p.x, p.y, p.angle, driverSlot.color_hex, false);
-  } else if (driverSlot){
-    var p2 = trackPoint(0);
-    drawCarSprite(p2.x, p2.y, p2.angle, driverSlot.color_hex, false);
+  if (onTrack.length){
+    var avgTime = onTrack.reduce(function(sum, r){ return sum + r.time; }, 0) / onTrack.length;
+    var slotById = {};
+    room.slots.forEach(function(s){ slotById[s.slot] = s; });
+    onTrack.forEach(function(r){
+      var s = slotById[r.driver_id];
+      if (!s) return;
+      var dur = QUALI_LAP_MS_AVG * (r.time / avgTime);
+      // Stagger each car to a random point on the loop from the moment it
+      // appears, instead of every car launching from the line at once --
+      // otherwise pace differences (a few percent) are too small to visibly
+      // separate them within a single lap and they just clump together.
+      if (qualiAnimLapStarts[r.driver_id] == null) qualiAnimLapStarts[r.driver_id] = ts - Math.random() * dur;
+      var elapsed = ts - qualiAnimLapStarts[r.driver_id];
+      var frac = reducedMotion ? 0 : (elapsed % dur) / dur;
+      var p = trackPoint(frac);
+      drawCarSprite(p.x, p.y, p.angle, s.color_hex, false);
+    });
   }
 
   qualiAnimRafId = requestAnimationFrame(qualiAnimTick);
@@ -541,10 +548,11 @@ function ensureQualiTowerRunning(){
       var tmp = qualiTowerOrder[i]; qualiTowerOrder[i] = qualiTowerOrder[j]; qualiTowerOrder[j] = tmp;
     }
     qualiTowerRevealed = [];
+    qualiAnimLapStarts = {};
   }
   paintQualiTower();
   if (!qualiTowerTimer && qualiTowerRevealed.length < qualiTowerOrder.length){
-    qualiTowerTimer = setTimeout(revealNextQualiRow, QUALI_LAP_MS - 200 + Math.random() * 400);
+    qualiTowerTimer = setTimeout(revealNextQualiRow, QUALI_REVEAL_MS - 400 + Math.random() * 800);
   }
 }
 
@@ -553,9 +561,10 @@ function revealNextQualiRow(){
   var r = qualiTowerOrder[qualiTowerRevealed.length];
   r._justSet = true;
   qualiTowerRevealed.push(r);
+  delete qualiAnimLapStarts[r.driver_id];
   paintQualiTower();
   if (qualiTowerRevealed.length < qualiTowerOrder.length){
-    qualiTowerTimer = setTimeout(revealNextQualiRow, QUALI_LAP_MS - 200 + Math.random() * 400);
+    qualiTowerTimer = setTimeout(revealNextQualiRow, QUALI_REVEAL_MS - 400 + Math.random() * 800);
   } else {
     qualiTowerTimer = null;
     // The reveal just finished on its own timer, independent of any
