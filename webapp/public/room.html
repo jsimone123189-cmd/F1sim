@@ -277,8 +277,12 @@ function raceTireRowsHtml(slot){
   var available = COMPOUNDS.filter(function(c){ return c !== slot.quali_compound; });
   var html = '';
   for (var s = 0; s < slot.race_compounds.length; s++){
+    // Each stint must run a different compound, so a tire already used by
+    // another stint isn't offered here (this stint's own current pick still
+    // shows, selected, so clicking it again is a no-op rather than a dead end).
+    var options = available.filter(function(c){ return c === slot.race_compounds[s] || slot.race_compounds.indexOf(c) === -1; });
     html += '<div class="choice-group" style="margin-bottom:6px;">' +
-      available.map(function(c){ return tireBtn(c, slot.race_compounds[s] === c, 'data-stint="' + s + '" data-tire="' + c + '"'); }).join('') +
+      options.map(function(c){ return tireBtn(c, slot.race_compounds[s] === c, 'data-stint="' + s + '" data-tire="' + c + '"'); }).join('') +
       '</div>';
   }
   return html;
@@ -289,10 +293,19 @@ function renderPicksRace(){
   room.slots.forEach(function(s){ slotById[s.slot] = s; });
   var slot = mySlot();
   var rw = room.race_weather;
+  var done = qualiTowerDone();
 
   var html = '<div class="panel" style="margin-bottom:16px;">' +
     '<div class="panel-head"><span>Qualifying results</span><span class="count" id="room-quali-status"></span></div>' +
     '<ol class="leaderboard quali-live" id="room-quali-list"></ol></div>';
+
+  if (!done){
+    html += '<div class="panel"><div class="card-body">' +
+      '<p class="eyebrow">Watching</p><h2 style="font-size:1.15rem;">Qualifying is on track&hellip;</h2>' +
+      '<p class="hint">Race strategy picks unlock once every car has set a time.</p>' +
+      '</div></div>';
+    return html;
+  }
 
   html += circuitRevealHtml(room.circuit);
   html += '<div class="weather-reveal"><div class="track-state ' + rw.track_state + '">' + rw.track_state.toUpperCase() + '</div>' +
@@ -303,12 +316,14 @@ function renderPicksRace(){
   if (slot){
     html += '<p class="eyebrow">Your race strategy</p>' +
       '<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;"><span class="swatch" style="width:16px;height:16px;background:' + slot.color_hex + '"></span><h2 style="margin:0;">' + slot.color + ' car</h2></div>' +
+      '<div class="field-row"><label>Aggression</label><div class="agg-row"><input type="range" id="my-race-agg" min="1" max="5" value="' + slot.race_aggression + '">' +
+      '<span class="agg-label" id="my-race-agg-label">' + aggressionLabel(slot.race_aggression) + '</span></div></div>' +
       '<p class="hint">' + slot.quali_compound + ' is locked out &mdash; pick from the remaining three compounds.</p>' +
       '<div class="field-row"><label>Pit strategy</label><div class="choice-group">' +
       '<button type="button" class="choice-btn' + (slot.num_stops === 1 ? ' selected' : '') + '" data-stops="1">1-stop</button>' +
       '<button type="button" class="choice-btn' + (slot.num_stops === 2 ? ' selected' : '') + '" data-stops="2">2-stop</button>' +
       '</div></div>' +
-      '<div class="field-row"><label>Race tires (one per stint)</label>' + raceTireRowsHtml(slot) + '</div>';
+      '<div class="field-row"><label>Race tires (one per stint, no repeats)</label>' + raceTireRowsHtml(slot) + '</div>';
   } else {
     html += '<p class="eyebrow">No car</p><h2 style="font-size:1.15rem;">You didn\'t claim a car</h2>' +
       '<p class="hint">Qualifying is already locked in, so this room\'s grid is set. You can still watch.</p>';
@@ -317,7 +332,7 @@ function renderPicksRace(){
 
   html += '<div style="display:flex;flex-direction:column;gap:16px;">';
   html += '<div class="panel"><div class="panel-head"><span>Grid</span></div>' +
-    rosterHtml(function(s){ return s.num_stops + '-stop &middot; ' + s.race_compounds.join(' &rarr; '); }) + '</div>';
+    rosterHtml(function(s){ return aggressionLabel(s.race_aggression) + ' &middot; ' + s.num_stops + '-stop &middot; ' + s.race_compounds.join(' &rarr; '); }) + '</div>';
   html += '<div class="panel"><div class="card-body">';
   if (isCommissioner()){
     html += '<p class="eyebrow">Commissioner</p><h2 style="font-size:1.15rem;">Ready to race?</h2>' +
@@ -335,13 +350,25 @@ function renderPicksRace(){
 function wirePicksRace(){
   var slot = mySlot();
   if (slot){
+    var raceAggEl = document.getElementById('my-race-agg');
+    if (raceAggEl){
+      raceAggEl.addEventListener('input', function(){
+        document.getElementById('my-race-agg-label').textContent = aggressionLabel(parseInt(raceAggEl.value, 10));
+      });
+      raceAggEl.addEventListener('change', function(){
+        send({ type: 'update_race_pick', aggression: parseInt(raceAggEl.value, 10), num_stops: slot.num_stops, race_compounds: slot.race_compounds });
+      });
+    }
     document.querySelectorAll('[data-stops]').forEach(function(btn){
       btn.addEventListener('click', function(){
         var numStops = parseInt(this.dataset.stops, 10);
         var available = COMPOUNDS.filter(function(c){ return c !== slot.quali_compound; });
         var stints = numStops + 1;
         var rc = slot.race_compounds.slice(0, stints);
-        while (rc.length < stints) rc.push(available[0]);
+        while (rc.length < stints){
+          var fill = available.filter(function(c){ return rc.indexOf(c) === -1; })[0] || available[0];
+          rc.push(fill);
+        }
         send({ type: 'update_race_pick', num_stops: numStops, race_compounds: rc });
       });
     });
@@ -376,6 +403,10 @@ var qualiTowerKey = null;
 var qualiTowerOrder = [];
 var qualiTowerRevealed = [];
 var qualiTowerTimer = null;
+
+function qualiTowerDone(){
+  return qualiTowerOrder.length > 0 && qualiTowerRevealed.length >= qualiTowerOrder.length;
+}
 
 function paintQualiTower(){
   var listEl = document.getElementById('room-quali-list');
@@ -448,6 +479,14 @@ function revealNextQualiRow(){
     qualiTowerTimer = setTimeout(revealNextQualiRow, 320 + Math.random() * 260);
   } else {
     qualiTowerTimer = null;
+    // The reveal just finished on its own timer, independent of any
+    // websocket state change -- re-render this phase now so the race
+    // strategy picks (gated behind qualiTowerDone()) actually unlock.
+    if (room && room.phase === 'picks_race'){
+      var content = document.getElementById('content');
+      content.innerHTML = renderPicksRace();
+      wirePicksRace();
+    }
   }
 }
 
@@ -460,7 +499,7 @@ function renderRaceShell(){
     '<div class="race-grid">' +
       '<div class="panel">' +
         '<div class="panel-head"><span id="circuit-name-chip">Track</span><span class="count">LAP <span id="lap-now">0</span>/<span id="lap-total">20</span> &middot; <span id="race-weather-chip"></span> &middot; <span id="track-status">racing</span></span></div>' +
-        '<div class="track-wrap"><canvas id="track" width="1280" height="740" role="img" aria-label="Animated top-down view of cars racing around the track"></canvas></div>' +
+        '<div class="track-wrap"><canvas id="track" width="1600" height="925" role="img" aria-label="Animated top-down view of cars racing around the track"></canvas></div>' +
         '<div class="controls">' +
           '<button class="play-btn" id="play-btn" aria-label="Play">&#9654;</button>' +
           '<input type="range" class="scrub" id="scrub" min="0" max="1000" value="0" aria-label="Race progress">' +
@@ -783,7 +822,8 @@ function stateAt(driverId, t){
   }
 
   if (dnfCp){
-    var frac = prev.lap / raceData.num_laps;
+    var dnfProgress = prev.lap - 0.4;
+    var frac = ((dnfProgress % 1) + 1) % 1;
     var reached = t >= (prev.t || 0);
     return {
       status: reached ? 'dnf' : 'racing',
@@ -811,7 +851,7 @@ function stateAt(driverId, t){
   var localT = span>0 ? (t-(prev.t||0))/span : 1;
   if (localT<0) localT=0; if (localT>1) localT=1;
   var lapNum = next.lap;
-  var trackFrac = ((lapNum-1)+localT)/raceData.num_laps;
+  var trackFrac = localT;
   return {
     status:'racing', trackFrac: trackFrac, progress: (lapNum-1)+localT,
     lap: lapNum, compound: next.compound, position: prev.position, gap: prev.gap,

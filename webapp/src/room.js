@@ -76,6 +76,7 @@ export class LeagueRoom extends DurableObject {
         color: p[0],
         color_hex: p[1],
         aggression: 3,
+        race_aggression: 3,
         quali_compound: 'Medium',
         num_stops: 1,
         race_compounds: ['Soft', 'Hard']
@@ -174,13 +175,34 @@ export class LeagueRoom extends DurableObject {
         if (this.room.phase !== 'picks_race') break;
         const slot = this.room.slots.find((s) => s.claimedBy === participantId);
         if (!slot) break;
+        if (Number.isInteger(msg.aggression) && msg.aggression >= 1 && msg.aggression <= 5){
+          slot.race_aggression = msg.aggression;
+        }
         const numStops = msg.num_stops === 2 ? 2 : 1;
         slot.num_stops = numStops;
         const available = COMPOUNDS.filter((c) => c !== slot.quali_compound);
         const stints = numStops + 1;
         let rc = Array.isArray(msg.race_compounds) ? msg.race_compounds.slice(0, stints) : [];
-        rc = rc.map((c) => (available.includes(c) ? c : available[0]));
-        while (rc.length < stints) rc.push(available[0]);
+        rc = rc.map((c) => (available.includes(c) ? c : null));
+        // Each stint must use a distinct compound: drop any repeat (keeping
+        // its first occurrence), then backfill empty/dropped slots from
+        // whatever compounds are still unused.
+        const seen = new Set();
+        rc = rc.map((c) => {
+          if (c && !seen.has(c)){ seen.add(c); return c; }
+          return null;
+        });
+        rc = rc.map((c) => {
+          if (c) return c;
+          const fill = available.find((cand) => !seen.has(cand));
+          if (fill) seen.add(fill);
+          return fill || available[0];
+        });
+        while (rc.length < stints){
+          const fill = available.find((cand) => !seen.has(cand)) || available[0];
+          seen.add(fill);
+          rc.push(fill);
+        }
         slot.race_compounds = rc;
         changed = true;
         break;
@@ -236,12 +258,13 @@ export class LeagueRoom extends DurableObject {
       }))
     };
 
-    // Seed each slot's race-tire defaults now that the qualifying compound
-    // (and therefore the lockout) is fixed.
+    // Seed each slot's race-tire and race-aggression defaults now that the
+    // qualifying compound (and therefore the lockout) is fixed.
     this.room.slots.forEach((s) => {
       const available = COMPOUNDS.filter((c) => c !== s.quali_compound);
       s.num_stops = 1;
       s.race_compounds = [available[0], available[1] || available[0]];
+      s.race_aggression = s.aggression;
     });
 
     const wRng = makeRng(randomSeed());
@@ -254,7 +277,7 @@ export class LeagueRoom extends DurableObject {
     const weather = { ...this.room.race_weather };
     const drivers = this.room.slots.map((s) => ({
       driver_id: s.slot, name: s.name, color: s.color, color_hex: s.color_hex,
-      aggression: s.aggression, num_stops: s.num_stops, quali_compound: s.quali_compound,
+      aggression: s.race_aggression, num_stops: s.num_stops, quali_compound: s.quali_compound,
       race_compounds: s.race_compounds.slice()
     }));
     const raceOut = jsRunRace(drivers, weather, this.room.circuit, rng);

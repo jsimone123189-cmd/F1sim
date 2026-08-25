@@ -50,7 +50,7 @@
   }
 
   .app{
-    max-width:1720px;
+    max-width:2040px;
     margin:0 auto;
     padding:20px clamp(14px,3vw,28px) 40px;
     display:flex;
@@ -714,7 +714,7 @@
       <div class="panel">
         <div class="panel-head"><span>Track</span><span class="count" id="track-status">racing</span></div>
         <div class="track-wrap">
-          <canvas id="track" width="1280" height="740" role="img" aria-label="Animated top-down view of cars racing around the track"></canvas>
+          <canvas id="track" width="1600" height="925" role="img" aria-label="Animated top-down view of cars racing around the track"></canvas>
         </div>
         <div class="controls">
           <button class="play-btn" id="play-btn" aria-label="Play">&#9654;</button>
@@ -1176,7 +1176,8 @@ function stateAt(driverId, t){
   }
 
   if (dnfCp){
-    var frac = prev.lap / raceData.num_laps;
+    var dnfProgress = prev.lap - 0.4;
+    var frac = ((dnfProgress % 1) + 1) % 1;
     var reached = t >= (prev.t || 0);
     return {
       status: reached ? 'dnf' : 'racing',
@@ -1205,7 +1206,7 @@ function stateAt(driverId, t){
   var localT = span>0 ? (t-(prev.t||0))/span : 1;
   if (localT<0) localT=0; if (localT>1) localT=1;
   var lapNum = next.lap;
-  var trackFrac = ((lapNum-1)+localT)/raceData.num_laps;
+  var trackFrac = localT;
   return {
     status:'racing', trackFrac: trackFrac, progress: (lapNum-1)+localT,
     lap: lapNum, compound: next.compound, position: prev.position, gap: prev.gap,
@@ -2145,13 +2146,19 @@ function ensureDriverDraft(i){
   return wizard.drivers[i];
 }
 
+// Each stint must run a different compound (no repeats within a race).
 function syncRaceCompounds(d){
   var available = COMPOUNDS.filter(function(c){ return c !== d.quali_compound; });
   var stints = d.num_stops + 1;
+  var used = [];
   var next = [];
   for (var i = 0; i < stints; i++){
     var cur = d.race_compounds[i];
-    next.push(available.indexOf(cur) !== -1 ? cur : available[0]);
+    var pick = (available.indexOf(cur) !== -1 && used.indexOf(cur) === -1)
+      ? cur
+      : available.filter(function(c){ return used.indexOf(c) === -1; })[0] || available[0];
+    used.push(pick);
+    next.push(pick);
   }
   d.race_compounds = next;
 }
@@ -2160,8 +2167,12 @@ function raceTireRowsHtml(d){
   var available = COMPOUNDS.filter(function(c){ return c !== d.quali_compound; });
   var html = '';
   for (var s = 0; s < d.race_compounds.length; s++){
+    // A tire already used by another stint isn't offered here -- this
+    // stint's own current pick still shows (selected) so re-clicking it is
+    // a no-op instead of a dead end.
+    var options = available.filter(function(c){ return c === d.race_compounds[s] || d.race_compounds.indexOf(c) === -1; });
     html += '<div class="choice-group" style="margin-bottom:6px;">' +
-      available.map(function(c){ return tireBtn(c, d.race_compounds[s] === c, 'data-stint="' + s + '" data-tire="' + c + '"'); }).join('') +
+      options.map(function(c){ return tireBtn(c, d.race_compounds[s] === c, 'data-stint="' + s + '" data-tire="' + c + '"'); }).join('') +
       '</div>';
   }
   return html;

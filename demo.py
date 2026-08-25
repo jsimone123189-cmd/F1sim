@@ -64,8 +64,9 @@ def make_random_drivers(num_cars: int, rng: random.Random) -> list[Driver]:
         aggression = rng.randint(1, 5)
         num_stops = rng.choice([1, 2])
         quali_compound = rng.choice(COMPOUND_LIST)
-        available = [c for c in COMPOUND_LIST if c != quali_compound]
-        race_compounds = [rng.choice(available) for _ in range(num_stops + 1)]
+        pool = [c for c in COMPOUND_LIST if c != quali_compound]
+        rng.shuffle(pool)
+        race_compounds = pool[:num_stops + 1]
         drivers.append(build_driver(name, color, aggression, num_stops, quali_compound, race_compounds))
     return drivers
 
@@ -87,12 +88,12 @@ def make_interactive_drivers(num_cars: int, rng: random.Random) -> list[Driver]:
                                [c.value for c in COMPOUND_LIST], default_index=1)
         quali_compound = COMPOUND_LIST[q_idx]
 
-        available = [c for c in COMPOUND_LIST if c != quali_compound]
+        remaining = [c for c in COMPOUND_LIST if c != quali_compound]
         race_compounds = []
         for stint in range(num_stops + 1):
-            idx = prompt_choice(f"Race stint {stint + 1} tire compound:",
-                                 [c.value for c in available], default_index=0)
-            race_compounds.append(available[idx])
+            idx = prompt_choice(f"Race stint {stint + 1} tire compound (each stint must use a different one):",
+                                 [c.value for c in remaining], default_index=0)
+            race_compounds.append(remaining.pop(idx))
 
         drivers.append(build_driver(name, color, aggression, num_stops, quali_compound, race_compounds))
     return drivers

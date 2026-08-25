@@ -37,7 +37,7 @@ a{color:var(--accent-2);}
 button{font-family:var(--font-display);letter-spacing:.03em;}
 
 .app{
-  max-width:1720px;
+  max-width:2040px;
   margin:0 auto;
   padding:20px clamp(14px,3vw,28px) 40px;
   display:flex;
