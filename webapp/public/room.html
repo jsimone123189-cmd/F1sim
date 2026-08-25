@@ -509,27 +509,40 @@ var PXSCALE = 1;
 function fmtTime(t){ return t == null ? "--" : t.toFixed(1) + "s"; }
 function fmtGap(g){ return g == null ? "--" : "+" + g.toFixed(2) + "s"; }
 
-// Track geometry -- a real closed circuit shape, procedurally generated
-// from the room's rolled circuit.shape: a base ellipse (rx,ry) and
-// vertices (theta, radial scale, corner roundedness) placed around it,
+// Track geometry -- a real closed circuit shape, built from the room's
+// rolled circuit.shape: an explicit list of (x, y, corner roundedness)
+// waypoints -- not one point per angle from a shared center, so the
+// track can genuinely fold back on itself (real hairpins, esses) --
 // connected with straights and rounded corners -- same config as
 // engine.py/engine.js. See viz/index.html for the fuller explanation,
 // this is a straight port.
-function polarShape(rx, ry, points){
-  return { rx: rx, ry: ry, vertices: points.map(function(p){
-    return { theta: p[0] * Math.PI / 180, radius: p[1], corner: p[2] };
-  }) };
+function trackShape(points){
+  return { vertices: points.map(function(p){ return { x: p[0], y: p[1], corner: p[2] }; }) };
 }
-var DEFAULT_TRACK_SHAPE = polarShape(240, 175, [
-  [0, 1.0, 0.2], [20, 0.92, 0.16], [40, 0.78, 0.18], [58, 0.7, 0.15], [76, 0.78, 0.17],
-  [95, 0.9, 0.15], [113, 1.0, 0.2], [130, 0.9, 0.15], [148, 0.76, 0.16], [165, 0.66, 0.14],
-  [183, 0.74, 0.17], [200, 0.88, 0.15], [218, 1.0, 0.2], [235, 0.9, 0.15], [255, 0.78, 0.16],
-  [275, 0.68, 0.14], [295, 0.76, 0.17], [312, 0.9, 0.15], [330, 0.98, 0.19], [345, 0.9, 0.14]
+var DEFAULT_TRACK_SHAPE = trackShape([
+  [400, -180, 0.47], [380, -280, 0.87], [280, -260, 0.5], [236.2, -140.1, 0.6],
+  [176.8, -114.7, 0.5], [144.4, -67.2, 0.5], [93.1, 4.1, 0.82], [-56.5, -62.3, 0.35],
+  [-138.4, -55.4, 1], [-158.6, 80.5, 1], [-205.5, 158.3, 1], [-303.8, 95.9, 0.69],
+  [-414.5, 225.5, 0.53], [-526.3, 183.9, 0.71], [-600, 350, 0.8], [-150, 325, 0.4],
+  [-117.5, 13.3, 0.93], [14.8, 105.6, 0.58], [58, 108.3, 0.3], [105.5, 117.5, 0.98]
 ]);
 var TRACK = null; // built by buildTrackGeometry() once per race mount
 
 function shapeVertexPoint(shape, v){
-  return { x: shape.rx * v.radius * Math.cos(v.theta), y: shape.ry * v.radius * Math.sin(v.theta), corner: v.corner };
+  return { x: v.x, y: v.y, corner: v.corner };
+}
+
+// Signed area of the vertex polygon (shoelace formula). Its sign gives a
+// single, constant "which way is outward" for the whole loop -- correct
+// for any simple polygon including concave ones (hairpins), unlike a
+// per-point "away from the origin" test.
+function polygonSignedArea(vertices){
+  var a = 0, n = vertices.length;
+  for (var i=0;i<n;i++){
+    var p = vertices[i], q = vertices[(i+1)%n];
+    a += p.x*q.y - q.x*p.y;
+  }
+  return a / 2;
 }
 
 function buildRoundedPolygonRaw(shape){
@@ -596,6 +609,7 @@ function buildRoundedPolygonRaw(shape){
 function buildTrackGeometry(shape){
   var raw = buildRoundedPolygonRaw(shape);
   var N = raw.length - 1;
+  var outwardSign = polygonSignedArea(shape.vertices) < 0 ? 1 : -1;
 
   var minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
   raw.forEach(function(p){
@@ -616,7 +630,7 @@ function buildTrackGeometry(shape){
     cum.push(cum[j-1] + Math.sqrt(dx*dx + dy*dy));
   }
 
-  TRACK = { raw: raw, cum: cum, totalLen: cum[N], scale: scale, cx: cx, cy: cy, band: band, N: N };
+  TRACK = { raw: raw, cum: cum, totalLen: cum[N], scale: scale, cx: cx, cy: cy, band: band, N: N, outwardSign: outwardSign };
 }
 
 function rawAtFraction(f){
@@ -640,8 +654,7 @@ function trackPoint(f, offsetPx){
   var tx = p1.x - p0.x, ty = p1.y - p0.y;
   var tlen = Math.sqrt(tx*tx + ty*ty) || 1;
   tx /= tlen; ty /= tlen;
-  var nx = ty, ny = -tx;
-  if (p.x*nx + p.y*ny < 0){ nx = -nx; ny = -ny; }
+  var nx = ty * TRACK.outwardSign, ny = -tx * TRACK.outwardSign;
   var off = offsetPx || 0;
   return {
     x: TRACK.cx + p.x*TRACK.scale + nx*off,
