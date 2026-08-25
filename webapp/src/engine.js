@@ -58,39 +58,39 @@ export const CIRCUITS = [
   { id: 'sable-bay', name: 'Sable Bay Circuit',
     description: 'Long straights and sweeping bends -- low deg, easy to pass, punishing at speed.',
     deg_multiplier: 0.85, overtake_difficulty: 0.65, crash_rate_multiplier: 1.1, pit_loss_bonus: 0.0,
-    shape: polarShape(270, 160, [
-      [0, 1.0, 0.45], [70, 0.85, 0.4], [150, 1.05, 0.45], [220, 0.75, 0.4], [300, 0.95, 0.45]
+    shape: polarShape(280, 165, [
+      [0, 1.0, 0.2], [65, 0.88, 0.35], [140, 1.05, 0.25], [175, 0.62, 0.1], [215, 0.7, 0.35], [300, 0.92, 0.22]
     ]) },
   { id: 'verdant-ridge', name: 'Verdant Ridge Hillclimb',
     description: 'Constant direction changes -- technical, hard on tires, very hard to pass.',
     deg_multiplier: 1.25, overtake_difficulty: 1.3, crash_rate_multiplier: 1.0, pit_loss_bonus: 0.2,
-    shape: polarShape(200, 170, [
-      [0, 1.0, 0.22], [36, 0.68, 0.15], [72, 0.98, 0.28], [108, 0.62, 0.15],
-      [144, 1.0, 0.3], [180, 0.7, 0.18], [216, 0.92, 0.25], [252, 0.6, 0.15],
-      [288, 0.98, 0.3], [324, 0.75, 0.2]
+    shape: polarShape(205, 175, [
+      [0, 1.0, 0.14], [36, 0.66, 0.12], [72, 0.98, 0.18], [108, 0.6, 0.1],
+      [144, 1.0, 0.2], [180, 0.68, 0.12], [216, 0.9, 0.16], [252, 0.58, 0.1],
+      [288, 0.98, 0.2], [324, 0.72, 0.12]
     ]) },
   { id: 'iron-harbor', name: 'Iron Harbor Street Circuit',
     description: 'Tight street course, walls close in -- brutal on mistakes, brutal to overtake.',
     deg_multiplier: 1.0, overtake_difficulty: 1.6, crash_rate_multiplier: 1.5, pit_loss_bonus: 0.4,
-    shape: polarShape(200, 120, [
-      [10, 1.0, 0.12], [40, 0.9, 0.1], [70, 1.0, 0.12], [100, 0.82, 0.1],
-      [130, 1.0, 0.12], [160, 0.88, 0.1], [190, 1.0, 0.12], [220, 0.8, 0.1],
-      [250, 1.0, 0.12], [280, 0.88, 0.1], [310, 1.0, 0.12], [340, 0.85, 0.1]
+    shape: polarShape(205, 122, [
+      [10, 1.0, 0.08], [40, 0.88, 0.07], [70, 1.0, 0.08], [100, 0.8, 0.07],
+      [130, 1.0, 0.08], [160, 0.86, 0.07], [190, 1.0, 0.08], [220, 0.78, 0.07],
+      [250, 1.0, 0.08], [280, 0.86, 0.07], [310, 1.0, 0.08], [340, 0.82, 0.07]
     ]) },
   { id: 'sunspire', name: 'Sunspire Speedway',
     description: 'Elongated high-speed bowl with a couple of chicanes -- fast, tires take a beating.',
     deg_multiplier: 1.1, overtake_difficulty: 0.75, crash_rate_multiplier: 1.05, pit_loss_bonus: 0.0,
-    shape: polarShape(270, 150, [
-      [0, 1.0, 0.65], [15, 0.88, 0.18], [30, 1.0, 0.65], [90, 0.55, 0.55], [150, 1.0, 0.65],
-      [165, 1.0, 0.65], [180, 0.88, 0.18], [195, 1.0, 0.65], [210, 1.0, 0.65],
-      [270, 0.55, 0.55], [330, 1.0, 0.65], [345, 1.0, 0.65]
+    shape: polarShape(280, 155, [
+      [0, 1.0, 0.4], [15, 0.86, 0.12], [30, 1.0, 0.4], [90, 0.5, 0.35], [150, 1.0, 0.4],
+      [165, 1.0, 0.4], [180, 0.86, 0.12], [195, 1.0, 0.4], [210, 1.0, 0.4],
+      [270, 0.5, 0.35], [330, 1.0, 0.4], [345, 1.0, 0.4]
     ]) },
   { id: 'northgate', name: 'Northgate Endurance Circuit',
     description: 'A balanced, flowing all-rounder -- no extreme strengths or weaknesses.',
     deg_multiplier: 1.0, overtake_difficulty: 1.0, crash_rate_multiplier: 1.0, pit_loss_bonus: 0.1,
-    shape: polarShape(230, 170, [
-      [0, 1.0, 0.42], [50, 0.8, 0.38], [100, 1.0, 0.42], [150, 0.8, 0.35],
-      [200, 1.0, 0.42], [250, 0.8, 0.38], [300, 1.0, 0.42]
+    shape: polarShape(235, 172, [
+      [0, 1.0, 0.22], [50, 0.78, 0.2], [100, 1.0, 0.22], [150, 0.76, 0.18],
+      [200, 1.0, 0.22], [250, 0.78, 0.2], [300, 1.0, 0.22]
     ]) }
 ];
 export function rollCircuit(rng){ return CIRCUITS[Math.floor(rng.random() * CIRCUITS.length)]; }

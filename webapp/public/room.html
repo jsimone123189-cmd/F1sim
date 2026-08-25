@@ -520,9 +520,9 @@ function polarShape(rx, ry, points){
     return { theta: p[0] * Math.PI / 180, radius: p[1], corner: p[2] };
   }) };
 }
-var DEFAULT_TRACK_SHAPE = polarShape(230, 170, [
-  [0, 1.0, 0.42], [50, 0.8, 0.38], [100, 1.0, 0.42], [150, 0.8, 0.35],
-  [200, 1.0, 0.42], [250, 0.8, 0.38], [300, 1.0, 0.42]
+var DEFAULT_TRACK_SHAPE = polarShape(235, 172, [
+  [0, 1.0, 0.22], [50, 0.78, 0.2], [100, 1.0, 0.22], [150, 0.76, 0.18],
+  [200, 1.0, 0.22], [250, 0.78, 0.2], [300, 1.0, 0.22]
 ]);
 var TRACK = null; // built by buildTrackGeometry() once per race mount
 
